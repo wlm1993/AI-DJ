@@ -21,15 +21,18 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_API_KEY,
+    CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
     CONF_PROVIDER,
+    DEFAULT_BASE_URL,
     DEFAULT_LOOKAHEAD,
     DEFAULT_MODELS,
     DOMAIN,
     MAX_LOOKAHEAD,
     MIN_LOOKAHEAD,
     PROVIDERS,
+    PROVIDERS_NEED_BASE_URL,
 )
 from .llm import LLMClient, LLMError
 
@@ -73,40 +76,43 @@ class AIDJConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Collect API key and model, then validate with a live call."""
         assert self._provider is not None
+        needs_base_url = self._provider in PROVIDERS_NEED_BASE_URL
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            base_url = user_input.get(CONF_BASE_URL)
             client = LLMClient(
                 self.hass,
                 provider=self._provider,
                 api_key=user_input[CONF_API_KEY],
                 model=user_input[CONF_MODEL],
+                base_url=base_url,
             )
             try:
                 await client.async_validate()
             except LLMError:
                 errors["base"] = "cannot_connect"
             else:
+                data = {
+                    CONF_PROVIDER: self._provider,
+                    CONF_API_KEY: user_input[CONF_API_KEY],
+                    CONF_MODEL: user_input[CONF_MODEL],
+                }
+                if base_url:
+                    data[CONF_BASE_URL] = base_url
                 return self.async_create_entry(
-                    title=f"AI DJ ({self._provider})",
-                    data={
-                        CONF_PROVIDER: self._provider,
-                        CONF_API_KEY: user_input[CONF_API_KEY],
-                        CONF_MODEL: user_input[CONF_MODEL],
-                    },
+                    title=f"AI DJ ({self._provider})", data=data
                 )
+
+        schema: dict = {vol.Required(CONF_API_KEY): str}
+        if needs_base_url:
+            schema[vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL)] = str
+        schema[vol.Required(CONF_MODEL, default=DEFAULT_MODELS[self._provider])] = str
 
         return self.async_show_form(
             step_id="credentials",
             errors=errors,
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_API_KEY): str,
-                    vol.Required(
-                        CONF_MODEL, default=DEFAULT_MODELS[self._provider]
-                    ): str,
-                }
-            ),
+            data_schema=vol.Schema(schema),
         )
 
     @staticmethod

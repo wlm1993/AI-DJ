@@ -10,9 +10,10 @@
       },
       "credentials": {
         "title": "API credentials",
-        "description": "Enter your API key. The default model is cheap and fast; you can change it here or later in the integration options.",
+        "description": "Enter your API key. The default model is cheap and fast; you can change it here or later in the integration options. For an OpenAI-compatible endpoint, set the base URL (e.g. Groq https://api.groq.com/openai/v1, OpenRouter https://openrouter.ai/api/v1, DeepSeek https://api.deepseek.com/v1, or a local Ollama http://homeassistant.local:11434/v1).",
         "data": {
           "api_key": "API key",
+          "base_url": "Base URL (OpenAI-compatible endpoint)",
           "model": "Model"
         }
       }
@@ -28,7 +29,9 @@
     "provider": {
       "options": {
         "anthropic": "Anthropic (Claude)",
-        "openai": "OpenAI (GPT)"
+        "openai": "OpenAI (GPT)",
+        "gemini": "Google Gemini",
+        "openai_compatible": "OpenAI-compatible (Groq, OpenRouter, DeepSeek, Ollama…)"
       }
     }
   },

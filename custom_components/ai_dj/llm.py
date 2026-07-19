@@ -13,13 +13,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
+from .const import (
+    PROVIDER_ANTHROPIC,
+    PROVIDER_GEMINI,
+    PROVIDER_OPENAI,
+    PROVIDER_OPENAI_COMPATIBLE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=90)
 
 SYSTEM_PROMPT = """You are an AI DJ running a live listening session in a smart home.
@@ -78,12 +84,19 @@ class LLMClient:
     """Thin async client for the configured LLM provider."""
 
     def __init__(
-        self, hass: HomeAssistant, provider: str, api_key: str, model: str
+        self,
+        hass: HomeAssistant,
+        provider: str,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
     ) -> None:
         self._session = async_get_clientsession(hass)
         self._provider = provider
         self._api_key = api_key
         self._model = model
+        # For OpenAI-compatible third parties; falls back to the OpenAI URL.
+        self._base_url = (base_url or "").rstrip("/") or None
 
     async def async_pick_tracks(self, context: dict[str, Any]) -> DJPick:
         """Ask the LLM for the next tracks given the session context."""
@@ -107,7 +120,9 @@ class LLMClient:
         try:
             if self._provider == PROVIDER_ANTHROPIC:
                 return await self._complete_anthropic(system, user)
-            if self._provider == PROVIDER_OPENAI:
+            if self._provider == PROVIDER_GEMINI:
+                return await self._complete_gemini(system, user)
+            if self._provider in (PROVIDER_OPENAI, PROVIDER_OPENAI_COMPATIBLE):
                 return await self._complete_openai(system, user)
         except aiohttp.ClientError as err:
             raise LLMError(f"Cannot reach {self._provider} API: {err}") from err
@@ -137,8 +152,9 @@ class LLMClient:
             raise LLMError(f"Unexpected Anthropic response: {body}") from err
 
     async def _complete_openai(self, system: str, user: str) -> str:
+        url = f"{self._base_url}/chat/completions" if self._base_url else OPENAI_URL
         resp = await self._session.post(
-            OPENAI_URL,
+            url,
             timeout=REQUEST_TIMEOUT,
             headers={"Authorization": f"Bearer {self._api_key}"},
             json={
@@ -151,11 +167,35 @@ class LLMClient:
         )
         body = await resp.json()
         if resp.status != 200:
-            raise LLMError(_api_error("OpenAI", resp.status, body))
+            raise LLMError(_api_error("OpenAI-compatible", resp.status, body))
         try:
             return body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as err:
             raise LLMError(f"Unexpected OpenAI response: {body}") from err
+
+    async def _complete_gemini(self, system: str, user: str) -> str:
+        url = f"{GEMINI_URL}/{self._model}:generateContent"
+        resp = await self._session.post(
+            url,
+            timeout=REQUEST_TIMEOUT,
+            headers={"x-goog-api-key": self._api_key},
+            json={
+                "system_instruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "generationConfig": {
+                    "maxOutputTokens": 1500,
+                    "responseMimeType": "application/json",
+                },
+            },
+        )
+        body = await resp.json()
+        if resp.status != 200:
+            raise LLMError(_api_error("Gemini", resp.status, body))
+        try:
+            parts = body["candidates"][0]["content"]["parts"]
+            return "".join(p.get("text", "") for p in parts)
+        except (KeyError, IndexError, TypeError) as err:
+            raise LLMError(f"Unexpected Gemini response: {body}") from err
 
 
 def _api_error(provider: str, status: int, body: Any) -> str:

@@ -5,16 +5,33 @@ DOMAIN = "ai_dj"
 CONF_PROVIDER = "provider"
 CONF_API_KEY = "api_key"
 CONF_MODEL = "model"
+CONF_BASE_URL = "base_url"
 CONF_LOOKAHEAD = "lookahead"
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENAI = "openai"
-PROVIDERS = [PROVIDER_ANTHROPIC, PROVIDER_OPENAI]
+PROVIDER_GEMINI = "gemini"
+PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
+PROVIDERS = [
+    PROVIDER_ANTHROPIC,
+    PROVIDER_OPENAI,
+    PROVIDER_GEMINI,
+    PROVIDER_OPENAI_COMPATIBLE,
+]
+
+# Providers that need a user-supplied base URL (OpenAI-compatible endpoints).
+PROVIDERS_NEED_BASE_URL = [PROVIDER_OPENAI_COMPATIBLE]
 
 DEFAULT_MODELS = {
     PROVIDER_ANTHROPIC: "claude-haiku-4-5",
     PROVIDER_OPENAI: "gpt-4o-mini",
+    PROVIDER_GEMINI: "gemini-2.5-flash",
+    PROVIDER_OPENAI_COMPATIBLE: "llama-3.3-70b-versatile",
 }
+
+# Suggested base URL prefilled for the OpenAI-compatible step (Groq shown as
+# a fast, cheap default; swap for OpenRouter, DeepSeek, Ollama, etc.).
+DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_LOOKAHEAD = 3
 MIN_LOOKAHEAD = 1
 MAX_LOOKAHEAD = 6

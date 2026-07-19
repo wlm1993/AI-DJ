@@ -19,8 +19,29 @@ ask for a **change of mood** — like a DJ taking requests.
   live/remix/karaoke cuts. Suggestions that aren't in your library are
   silently skipped (the DJ always asks for spare candidates).
 
-Works with **Anthropic (Claude)** or **OpenAI** — you pick the provider and
-model during setup.
+## Providers
+
+You pick the provider and model during setup. Because the token payloads are
+tiny (a small JSON in and out, a few dozen calls an evening), cost is pennies
+on any of these — pick for music knowledge and JSON reliability, not price.
+
+| Provider | Pick in setup | Good cheap models |
+|---|---|---|
+| Anthropic | `Anthropic (Claude)` | `claude-haiku-4-5` (default) |
+| OpenAI | `OpenAI (GPT)` | `gpt-4o-mini` (default) |
+| Google Gemini | `Google Gemini` | `gemini-2.5-flash` (default), `gemini-2.0-flash` (cheaper) |
+| Anything OpenAI-compatible | `OpenAI-compatible` | see below |
+
+The **OpenAI-compatible** option asks for a **base URL**, which unlocks a huge
+range of cheap/fast/free backends through one code path:
+
+- **Groq** — `https://api.groq.com/openai/v1`, e.g. `llama-3.3-70b-versatile`. Blisteringly fast, very cheap.
+- **OpenRouter** — `https://openrouter.ai/api/v1`, hundreds of models including free tiers.
+- **DeepSeek** — `https://api.deepseek.com/v1`, e.g. `deepseek-chat`. Extremely cheap.
+- **Local Ollama** — `http://homeassistant.local:11434/v1` (any string as the key). Free, private, but small local models are weaker at knowing real tracks.
+
+Gemini Flash and Groq's Llama 3.3 70B are the sweet spot for "cheap but still
+knows real music."
 
 ## Requirements
 

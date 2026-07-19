@@ -19,6 +19,7 @@ from .const import (
     ATTR_TEXT,
     CARD_URL_PATH,
     CONF_API_KEY,
+    CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
     CONF_PROVIDER,
@@ -90,6 +91,7 @@ def _register_services(hass: HomeAssistant) -> None:
             provider=entry.data[CONF_PROVIDER],
             api_key=entry.data[CONF_API_KEY],
             model=entry.options.get(CONF_MODEL, entry.data[CONF_MODEL]),
+            base_url=entry.data.get(CONF_BASE_URL),
         )
         session = DJSession(
             hass,
