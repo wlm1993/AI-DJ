@@ -6,7 +6,6 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -17,6 +16,7 @@ from .const import (
     ATTR_PLAYER,
     ATTR_PROMPT,
     ATTR_TEXT,
+    CARD_RESOURCE_URL,
     CARD_URL_PATH,
     CONF_API_KEY,
     CONF_BASE_URL,
@@ -123,7 +123,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
 
 async def _register_card(hass: HomeAssistant, domain_data: dict) -> None:
-    """Serve the bundled Lovelace card and load it on every dashboard."""
+    """Serve the bundled Lovelace card and register it as a Lovelace resource."""
     if domain_data.get("card_registered"):
         return
     await hass.http.async_register_static_paths(
@@ -135,5 +135,48 @@ async def _register_card(hass: HomeAssistant, domain_data: dict) -> None:
             )
         ]
     )
-    add_extra_js_url(hass, CARD_URL_PATH)
+    await _register_lovelace_resource(hass)
     domain_data["card_registered"] = True
+
+
+async def _register_lovelace_resource(hass: HomeAssistant) -> None:
+    """Add the card to the Lovelace resource registry (storage mode).
+
+    This is how HA reliably loads custom cards — add_extra_js_url does not get
+    the element registered before the dashboard renders the card. In YAML-mode
+    Lovelace the registry is read-only, so we log instructions instead.
+    """
+    try:
+        lovelace = hass.data.get("lovelace")
+        resources = getattr(lovelace, "resources", None)
+        if resources is None:
+            raise RuntimeError("Lovelace resources are not available")
+        if not resources.loaded:
+            await resources.async_load()
+
+        if not hasattr(resources, "async_create_item"):
+            _LOGGER.warning(
+                "Lovelace is in YAML mode; add this resource manually under "
+                "your resources: (url: %s, type: module)",
+                CARD_RESOURCE_URL,
+            )
+            return
+
+        for item in resources.async_items():
+            if item.get("url", "").split("?")[0] == CARD_URL_PATH:
+                if item["url"] != CARD_RESOURCE_URL:
+                    await resources.async_update_item(
+                        item["id"], {"url": CARD_RESOURCE_URL}
+                    )
+                return
+        await resources.async_create_item(
+            {"res_type": "module", "url": CARD_RESOURCE_URL}
+        )
+    except Exception as err:  # noqa: BLE001 - never block setup on card wiring
+        _LOGGER.warning(
+            "Could not auto-register the AI DJ card. Add it manually in "
+            "Settings > Dashboards > Resources (url: %s, type: JavaScript "
+            "Module). Reason: %s",
+            CARD_RESOURCE_URL,
+            err,
+        )

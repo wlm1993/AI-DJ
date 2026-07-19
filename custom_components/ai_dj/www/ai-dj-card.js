@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.1.0";
+const CARD_VERSION = "0.1.1";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -372,9 +372,12 @@ AiDjCard.styles = `
   .hidden { display: none !important; }
 `;
 
-customElements.define("ai-dj-card", AiDjCard);
+if (!customElements.get("ai-dj-card")) {
+  customElements.define("ai-dj-card", AiDjCard);
+}
 
 window.customCards = window.customCards || [];
+if (!window.customCards.some((c) => c.type === "ai-dj-card"))
 window.customCards.push({
   type: "ai-dj-card",
   name: "AI DJ Card",
