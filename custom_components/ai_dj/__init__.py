@@ -22,8 +22,10 @@ from .const import (
     CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
+    CONF_PERSONALITY,
     CONF_PROVIDER,
     DEFAULT_LOOKAHEAD,
+    DEFAULT_PERSONALITY,
     DOMAIN,
     SERVICE_LIKE,
     SERVICE_SKIP,
@@ -99,6 +101,7 @@ def _register_services(hass: HomeAssistant) -> None:
             player_entity=call.data[ATTR_PLAYER],
             prompt=call.data[ATTR_PROMPT],
             lookahead=entry.options.get(CONF_LOOKAHEAD, DEFAULT_LOOKAHEAD),
+            personality=entry.options.get(CONF_PERSONALITY, DEFAULT_PERSONALITY),
         )
         hass.data[DOMAIN]["session"] = session
         await session.async_start()

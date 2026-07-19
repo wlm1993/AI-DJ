@@ -17,6 +17,8 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
 )
 
 from .const import (
@@ -24,10 +26,12 @@ from .const import (
     CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
+    CONF_PERSONALITY,
     CONF_PROVIDER,
     DEFAULT_BASE_URL,
     DEFAULT_LOOKAHEAD,
     DEFAULT_MODELS,
+    DEFAULT_PERSONALITY,
     DOMAIN,
     MAX_LOOKAHEAD,
     MIN_LOOKAHEAD,
@@ -145,6 +149,12 @@ class AIDJOptionsFlow(OptionsFlow):
                         CONF_LOOKAHEAD,
                         default=entry.options.get(CONF_LOOKAHEAD, DEFAULT_LOOKAHEAD),
                     ): vol.All(vol.Coerce(int), vol.Range(MIN_LOOKAHEAD, MAX_LOOKAHEAD)),
+                    vol.Required(
+                        CONF_PERSONALITY,
+                        default=entry.options.get(
+                            CONF_PERSONALITY, DEFAULT_PERSONALITY
+                        ),
+                    ): TextSelector(TextSelectorConfig(multiline=True)),
                 }
             ),
         )

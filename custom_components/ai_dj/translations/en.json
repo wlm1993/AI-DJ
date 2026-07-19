@@ -41,7 +41,11 @@
         "title": "AI DJ options",
         "data": {
           "model": "Model",
-          "lookahead": "Tracks queued ahead (1-6)"
+          "lookahead": "Tracks queued ahead (1-6)",
+          "personality": "DJ personality"
+        },
+        "data_description": {
+          "personality": "Describe the DJ's character and voice. This shapes both the commentary and the music choices."
         }
       }
     }

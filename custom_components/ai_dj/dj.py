@@ -10,6 +10,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
@@ -50,12 +51,14 @@ class DJSession:
         player_entity: str,
         prompt: str,
         lookahead: int,
+        personality: str,
     ) -> None:
         self.hass = hass
         self.llm = llm
         self.player_entity = player_entity
         self.prompt = prompt
         self.lookahead = lookahead
+        self.personality = personality
 
         self.active = False
         self.dj_comment: str = ""
@@ -63,6 +66,7 @@ class DJSession:
         self.liked: list[dict[str, str]] = []
         self.wishes: list[str] = []
         self.history: list[dict[str, str]] = []
+        self.comment_log: list[str] = []
         self.current: ResolvedTrack | None = None
         self.upcoming: list[ResolvedTrack] = []
 
@@ -83,6 +87,8 @@ class DJSession:
             )
 
         self.dj_comment = pick.comment
+        if pick.comment:
+            self.comment_log.append(pick.comment)
         self.current = resolved[0]
         self.upcoming = resolved[1:]
         self.active = True
@@ -107,13 +113,46 @@ class DJSession:
     # ---------------------------------------------------------------- user input
 
     async def async_like(self) -> None:
-        """Mark the currently playing track as liked."""
+        """Mark the current track as liked and favorite it in Music Assistant."""
         track = self._now_playing() or (self.current.as_dict() if self.current else None)
         if not track:
             return
         if track not in self.liked:
             self.liked.append(track)
         self._notify()
+        await self._favorite_current_song()
+
+    async def _favorite_current_song(self) -> None:
+        """Press the player's MA 'Favorite current song' button (best-effort).
+
+        Music Assistant exposes one such button per player; favoriting there
+        propagates to the underlying provider (e.g. Tidal).
+        """
+        button = self._favorite_button_entity()
+        if button is None:
+            _LOGGER.debug("No favorite-song button found for %s", self.player_entity)
+            return
+        try:
+            await self.hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning("AI DJ could not favorite the current song: %s", err)
+
+    def _favorite_button_entity(self) -> str | None:
+        """Find the MA favorite-song button on the same device as the player."""
+        registry = er.async_get(self.hass)
+        entry = registry.async_get(self.player_entity)
+        if entry is None or entry.device_id is None:
+            return None
+        for candidate in er.async_entries_for_device(
+            registry, entry.device_id, include_disabled_entities=False
+        ):
+            if candidate.domain == "button" and candidate.entity_id.endswith(
+                "_favorite_current_song"
+            ):
+                return candidate.entity_id
+        return None
 
     async def async_wish(self, text: str) -> None:
         """Handle a song wish or mood change: queue matching tracks next."""
@@ -187,6 +226,8 @@ class DJSession:
                 else:
                     self.upcoming.extend(resolved)
                 self.dj_comment = pick.comment or self.dj_comment
+                if pick.comment:
+                    self.comment_log.append(pick.comment)
                 self.error = None
             except (LLMError, HomeAssistantError) as err:
                 _LOGGER.warning("AI DJ top-up failed: %s", err)
@@ -195,6 +236,7 @@ class DJSession:
 
     async def _llm_round(self, count: int, wish: str | None = None) -> DJPick:
         context: dict[str, Any] = {
+            "dj_personality": self.personality,
             "brief": self.prompt,
             "wishes": self.wishes,
             "liked": self.liked,
@@ -203,6 +245,8 @@ class DJSession:
                 + ([self.current.as_dict()] if self.current else [])
             ),
             "upcoming": [t.as_dict() for t in self.upcoming],
+            "your_recent_comments": self.comment_log[-6:],
+            "tracks_played_so_far": len(self.history),
             "count": count,
             "candidates": count + EXTRA_CANDIDATES,
         }

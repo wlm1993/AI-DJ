@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.1.1";
+const CARD_VERSION = "0.2.0";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -8,6 +8,9 @@ class AiDjCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._mode = null; // "idle" | "active"
     this._busy = false;
+    this._likedKey = null; // optimistic-like marker for the current track
+    this._currentKey = null;
+    this._toastTimer = null;
   }
 
   static getStubConfig() {
@@ -39,9 +42,9 @@ class AiDjCard extends HTMLElement {
 
   // ------------------------------------------------------------ service calls
 
-  async _call(service, data = {}) {
+  async _call(service, data = {}, loading = null) {
     if (this._busy) return;
-    this._setBusy(true);
+    this._setBusy(true, loading);
     try {
       await this._hass.callService("ai_dj", service, data);
     } catch (err) {
@@ -54,8 +57,19 @@ class AiDjCard extends HTMLElement {
   _start() {
     const prompt = this.shadowRoot.getElementById("prompt").value.trim();
     const player = this.shadowRoot.getElementById("player").value;
-    if (!prompt || !player) return;
-    this._call("start", { prompt, player });
+    if (!prompt) {
+      this._toast("Tell the DJ what you're in the mood for first");
+      return;
+    }
+    if (!player) {
+      this._toast("Pick a speaker first");
+      return;
+    }
+    this._call(
+      "start",
+      { prompt, player },
+      "Reading the room and cueing up your first tracks…"
+    );
   }
 
   _wish() {
@@ -63,7 +77,17 @@ class AiDjCard extends HTMLElement {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
-    this._call("wish", { text });
+    this._toast("Sent to the DJ ♫");
+    this._call("wish", { text }, "Working that into the mix…");
+  }
+
+  _like() {
+    // Optimistic: fill the heart and confirm immediately; the sensor catches up.
+    const btn = this.shadowRoot.getElementById("like");
+    if (btn) btn.classList.add("liked");
+    this._likedKey = this._currentKey;
+    this._toast("♥ Liked — more like this");
+    this._call("like");
   }
 
   _playPause() {
@@ -90,6 +114,11 @@ class AiDjCard extends HTMLElement {
         </div>
         ${mode === "idle" ? AiDjCard.idleTemplate : AiDjCard.activeTemplate}
         <div class="error hidden" id="error"></div>
+        <div class="loading hidden" id="loading">
+          <div class="spinner"></div>
+          <span id="loading-text">Working…</span>
+        </div>
+        <div class="toast hidden" id="toast"></div>
       </ha-card>`;
 
     const on = (id, handler) => {
@@ -104,7 +133,7 @@ class AiDjCard extends HTMLElement {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) this._start();
         });
     } else {
-      on("like", () => this._call("like"));
+      on("like", () => this._like());
       on("skip", () => this._call("skip"));
       on("stop", () => this._call("stop"));
       on("playpause", () => this._playPause());
@@ -126,25 +155,33 @@ class AiDjCard extends HTMLElement {
 
     const player = attrs.player ? this._hass.states[attrs.player] : null;
     const current = attrs.current_track || {};
+
+    // Reset the optimistic-like marker when the track changes.
+    const key = `${current.artist || ""}|${current.title || ""}`;
+    if (key !== this._currentKey) {
+      this._currentKey = key;
+      this._likedKey = null;
+    }
+
     this._text("track-title", current.title || "—");
     this._text("track-artist", current.artist || "");
     this._text("comment", attrs.dj_comment || "");
-    this.shadowRoot.getElementById("comment-row").classList.toggle(
-      "hidden",
-      !attrs.dj_comment
-    );
+    this.shadowRoot
+      .getElementById("comment-row")
+      .classList.toggle("hidden", !attrs.dj_comment);
 
     const art = this.shadowRoot.getElementById("art");
     const pic = player && player.attributes.entity_picture;
-    art.style.backgroundImage = pic ? `url(${pic})` : "none";
+    art.style.backgroundImage = pic ? `url("${pic}")` : "none";
     art.classList.toggle("placeholder", !pic);
 
     const playing = player && player.state === "playing";
     this._text("playpause", playing ? "⏸" : "▶");
 
-    const liked = (attrs.liked || []).some(
+    const likedBySensor = (attrs.liked || []).some(
       (t) => t.title === current.title && t.artist === current.artist
     );
+    const liked = likedBySensor || this._likedKey === key;
     this.shadowRoot.getElementById("like").classList.toggle("liked", liked);
 
     const speaker = player
@@ -168,7 +205,7 @@ class AiDjCard extends HTMLElement {
     select.dataset.signature = signature;
     select.innerHTML = options.length
       ? options
-          .map((o) => `<option value="${o.id}">${o.name}</option>`)
+          .map((o) => `<option value="${o.id}">${this._esc(o.name)}</option>`)
           .join("")
       : `<option value="">No Music Assistant players found</option>`;
     if (previous && players.includes(previous)) select.value = previous;
@@ -207,13 +244,35 @@ class AiDjCard extends HTMLElement {
     return div.innerHTML;
   }
 
-  _setBusy(busy) {
+  _setBusy(busy, loading = null) {
     this._busy = busy;
     this.shadowRoot
       .querySelectorAll("button, select, textarea, input")
       .forEach((el) => (el.disabled = busy));
-    const card = this.shadowRoot.querySelector("ha-card");
-    if (card) card.classList.toggle("busy", busy);
+    const overlay = this.shadowRoot.getElementById("loading");
+    if (overlay) {
+      if (busy && loading) {
+        this._text("loading-text", loading);
+        overlay.classList.remove("hidden");
+      } else {
+        overlay.classList.add("hidden");
+      }
+    }
+  }
+
+  _toast(message) {
+    const el = this.shadowRoot.getElementById("toast");
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("hidden");
+    // force reflow so the transition runs even on rapid repeat toasts
+    void el.offsetWidth;
+    el.classList.add("show");
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.classList.add("hidden"), 300);
+    }, 2400);
   }
 
   _showError(message) {
@@ -271,8 +330,7 @@ AiDjCard.activeTemplate = `
 
 AiDjCard.styles = `
   :host { display: block; }
-  ha-card { overflow: hidden; transition: opacity .2s; }
-  ha-card.busy { opacity: .65; pointer-events: none; }
+  ha-card { overflow: hidden; position: relative; }
   .pad { padding: 16px; }
   .header {
     display: flex; align-items: center; gap: 10px;
@@ -289,6 +347,7 @@ AiDjCard.styles = `
     font-size: .8em; padding: 3px 10px; border-radius: 999px;
     background: var(--secondary-background-color);
     color: var(--secondary-text-color);
+    max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .status.active {
     background: rgba(76, 175, 80, .15); color: var(--success-color, #4caf50);
@@ -309,7 +368,10 @@ AiDjCard.styles = `
     font: inherit; cursor: pointer; border: none; border-radius: 10px;
     background: var(--secondary-background-color);
     color: var(--primary-text-color);
+    transition: transform .08s, background .15s, color .15s;
   }
+  button:not(:disabled):active { transform: scale(0.94); }
+  button:disabled { cursor: default; opacity: .6; }
   button.primary {
     background: var(--primary-color); color: var(--text-primary-color, #fff);
     padding: 10px 18px; font-weight: 600; flex: none;
@@ -334,7 +396,13 @@ AiDjCard.styles = `
     width: 40px; height: 40px; border-radius: 50%; font-size: 16px;
     display: flex; align-items: center; justify-content: center;
   }
-  .round.heart.liked { background: rgba(233, 30, 99, .2); color: #e91e63; }
+  .round.heart.liked {
+    background: rgba(233, 30, 99, .2); color: #e91e63;
+    animation: pop .3s ease;
+  }
+  @keyframes pop {
+    0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); }
+  }
   .round.stop:hover { color: var(--error-color, #f44336); }
   .comment {
     margin-top: 14px; padding: 10px 12px; border-radius: 10px;
@@ -369,6 +437,33 @@ AiDjCard.styles = `
     background: rgba(244, 67, 54, .12); color: var(--error-color, #f44336);
     font-size: .85em;
   }
+  .loading {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; flex-direction: column; gap: 12px;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 20px;
+    background: color-mix(in srgb, var(--card-background-color, #fff) 82%, transparent);
+    backdrop-filter: blur(2px);
+    color: var(--primary-text-color);
+  }
+  .spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--divider-color);
+    border-top-color: var(--primary-color);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast {
+    position: absolute; left: 50%; bottom: 14px; transform: translate(-50%, 8px);
+    z-index: 4; max-width: 90%;
+    padding: 8px 14px; border-radius: 999px; font-size: .85em;
+    background: var(--primary-color); color: var(--text-primary-color, #fff);
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    opacity: 0; transition: opacity .25s, transform .25s;
+    pointer-events: none; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
   .hidden { display: none !important; }
 `;
 
@@ -378,12 +473,12 @@ if (!customElements.get("ai-dj-card")) {
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === "ai-dj-card"))
-window.customCards.push({
-  type: "ai-dj-card",
-  name: "AI DJ Card",
-  description: "Start and steer an AI DJ session on Music Assistant.",
-  preview: true,
-});
+  window.customCards.push({
+    type: "ai-dj-card",
+    name: "AI DJ Card",
+    description: "Start and steer an AI DJ session on Music Assistant.",
+    preview: true,
+  });
 
 console.info(`%c AI-DJ-CARD %c v${CARD_VERSION} `,
   "background:#03a9f4;color:#fff;border-radius:4px 0 0 4px;padding:2px 0",

@@ -7,6 +7,13 @@ CONF_API_KEY = "api_key"
 CONF_MODEL = "model"
 CONF_BASE_URL = "base_url"
 CONF_LOOKAHEAD = "lookahead"
+CONF_PERSONALITY = "personality"
+
+DEFAULT_PERSONALITY = (
+    "A warm, witty late-night radio DJ with deep, eclectic music taste. "
+    "Confident but never cheesy; you love a good segue and the occasional "
+    "surprise. Keep your comments short and human."
+)
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENAI = "openai"
@@ -52,7 +59,7 @@ ATTR_TEXT = "text"
 
 SIGNAL_SESSION_UPDATE = f"{DOMAIN}_session_update"
 
-CARD_VERSION = "0.1.1"
+CARD_VERSION = "0.2.0"
 CARD_URL_PATH = f"/{DOMAIN}-files/ai-dj-card.js"
 # Version query busts the browser/Cloudflare cache when the card changes.
 CARD_RESOURCE_URL = f"{CARD_URL_PATH}?v={CARD_VERSION}"
