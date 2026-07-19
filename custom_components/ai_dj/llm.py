@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -58,6 +59,15 @@ Respond with ONLY a JSON object, no markdown fences, in this exact shape:
 
 class LLMError(HomeAssistantError):
     """Raised when the LLM request fails."""
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+# HTTP statuses worth retrying: rate limit, overloaded, transient server error.
+RETRYABLE_STATUS = {429, 500, 502, 503, 529}
+MAX_ATTEMPTS = 3
 
 
 @dataclass
@@ -117,6 +127,26 @@ class LLMClient:
         await self._complete("Reply with the single word: ok", "ping")
 
     async def _complete(self, system: str, user: str) -> str:
+        """Dispatch to the provider, retrying transient failures with backoff."""
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                return await self._dispatch(system, user)
+            except LLMError as err:
+                if err.retryable and attempt < MAX_ATTEMPTS:
+                    delay = 1.5 * attempt
+                    _LOGGER.warning(
+                        "AI DJ LLM call failed (%s), retry %d/%d in %.1fs",
+                        err,
+                        attempt,
+                        MAX_ATTEMPTS - 1,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        raise LLMError("LLM request failed after retries")  # pragma: no cover
+
+    async def _dispatch(self, system: str, user: str) -> str:
         try:
             if self._provider == PROVIDER_ANTHROPIC:
                 return await self._complete_anthropic(system, user)
@@ -125,7 +155,9 @@ class LLMClient:
             if self._provider in (PROVIDER_OPENAI, PROVIDER_OPENAI_COMPATIBLE):
                 return await self._complete_openai(system, user)
         except aiohttp.ClientError as err:
-            raise LLMError(f"Cannot reach {self._provider} API: {err}") from err
+            raise LLMError(
+                f"Cannot reach {self._provider} API: {err}", retryable=True
+            ) from err
         raise LLMError(f"Unknown provider: {self._provider}")
 
     async def _complete_anthropic(self, system: str, user: str) -> str:
@@ -138,14 +170,17 @@ class LLMClient:
             },
             json={
                 "model": self._model,
-                "max_tokens": 1500,
+                "max_tokens": 2048,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
         )
         body = await resp.json()
         if resp.status != 200:
-            raise LLMError(_api_error("Anthropic", resp.status, body))
+            raise LLMError(
+                _api_error("Anthropic", resp.status, body),
+                retryable=resp.status in RETRYABLE_STATUS,
+            )
         try:
             return body["content"][0]["text"]
         except (KeyError, IndexError, TypeError) as err:
@@ -167,7 +202,10 @@ class LLMClient:
         )
         body = await resp.json()
         if resp.status != 200:
-            raise LLMError(_api_error("OpenAI-compatible", resp.status, body))
+            raise LLMError(
+                _api_error("OpenAI-compatible", resp.status, body),
+                retryable=resp.status in RETRYABLE_STATUS,
+            )
         try:
             return body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as err:
@@ -183,19 +221,34 @@ class LLMClient:
                 "system_instruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": user}]}],
                 "generationConfig": {
-                    "maxOutputTokens": 1500,
+                    # Generous budget: "thinking" Gemini models (2.5/3) spend
+                    # output tokens on hidden reasoning before the JSON, so a
+                    # small cap truncates the answer mid-object.
+                    "maxOutputTokens": 8192,
                     "responseMimeType": "application/json",
                 },
             },
         )
         body = await resp.json()
         if resp.status != 200:
-            raise LLMError(_api_error("Gemini", resp.status, body))
+            raise LLMError(
+                _api_error("Gemini", resp.status, body),
+                retryable=resp.status in RETRYABLE_STATUS,
+            )
         try:
-            parts = body["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts)
+            candidate = body["candidates"][0]
         except (KeyError, IndexError, TypeError) as err:
             raise LLMError(f"Unexpected Gemini response: {body}") from err
+        parts = candidate.get("content", {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts)
+        if not text or candidate.get("finishReason") == "MAX_TOKENS":
+            raise LLMError(
+                "Gemini hit its output-token limit before finishing (model "
+                f"'{self._model}' spent the budget on reasoning). Try a "
+                "non-preview model such as gemini-2.5-flash.",
+                retryable=True,
+            )
+        return text
 
 
 def _api_error(provider: str, status: int, body: Any) -> str:
