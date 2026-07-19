@@ -1,0 +1,46 @@
+start:
+  name: Start DJ session
+  description: >-
+    Start an AI DJ session. The DJ interprets the prompt, queues the first
+    tracks on the chosen Music Assistant player and keeps picking live.
+  fields:
+    prompt:
+      name: Prompt
+      description: What you're in the mood for, in your own words.
+      required: true
+      example: "Lazy Sunday morning jazz, nothing too loud"
+      selector:
+        text:
+          multiline: true
+    player:
+      name: Speaker
+      description: The Music Assistant media_player to play on.
+      required: true
+      selector:
+        entity:
+          domain: media_player
+          integration: music_assistant
+
+stop:
+  name: End DJ session
+  description: End the session. Already-queued tracks keep playing.
+
+like:
+  name: Like current track
+  description: Tell the DJ you like the current track - it will lean into it.
+
+wish:
+  name: Wish
+  description: Ask for a specific song or a change of mood; it plays next.
+  fields:
+    text:
+      name: Wish
+      description: A song wish or mood change.
+      required: true
+      example: "Play something by Prince"
+      selector:
+        text:
+
+skip:
+  name: Skip track
+  description: Skip to the next queued track.

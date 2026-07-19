@@ -1,0 +1,13 @@
+{
+  "domain": "ai_dj",
+  "name": "AI DJ",
+  "codeowners": ["@williamleerbeckmeyer"],
+  "config_flow": true,
+  "dependencies": ["http", "music_assistant"],
+  "documentation": "https://github.com/williamleerbeckmeyer/ai-dj",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/williamleerbeckmeyer/ai-dj/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

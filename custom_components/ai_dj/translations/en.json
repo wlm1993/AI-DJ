@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AI DJ",
+        "description": "Choose which LLM provider the DJ should use to pick music.",
+        "data": {
+          "provider": "LLM provider"
+        }
+      },
+      "credentials": {
+        "title": "API credentials",
+        "description": "Enter your API key. The default model is cheap and fast; you can change it here or later in the integration options.",
+        "data": {
+          "api_key": "API key",
+          "model": "Model"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the LLM API with these credentials. Check the API key and model name."
+    },
+    "abort": {
+      "already_configured": "AI DJ is already configured."
+    }
+  },
+  "selector": {
+    "provider": {
+      "options": {
+        "anthropic": "Anthropic (Claude)",
+        "openai": "OpenAI (GPT)"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AI DJ options",
+        "data": {
+          "model": "Model",
+          "lookahead": "Tracks queued ahead (1-6)"
+        }
+      }
+    }
+  }
+}
