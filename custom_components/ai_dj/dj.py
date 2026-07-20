@@ -81,10 +81,15 @@ class DJSession:
         # fits "prompt" on the first round (see _set_comment/async_start).
         self.personality = DEFAULT_PERSONALITY
         self.announcer = Announcer(hass, player_entity, tts_entity)
-        self.announce_enabled = True
+        # Voice announcements are off by default - the player interrupts to
+        # speak (it can't duck), so the listener opts in via the card toggle.
+        self.announce_enabled = False
         # Live per-session pitch trim, added to the current persona's base
         # pitch - the "fun slider" on the card.
         self.announce_pitch = 0
+        # Latest comment waiting to be spoken; held until the next track
+        # transition so the voice lands between songs, not mid-song.
+        self._pending_comment: str | None = None
 
         self.active = False
         self.dj_comment: str = ""
@@ -138,6 +143,9 @@ class DJSession:
             self.hass, [self.player_entity], self._handle_player_event
         )
         self._notify()
+        # The first track is just starting (playhead ~0), so the opening
+        # comment can be spoken now - the interrupt-restart is invisible.
+        self._speak_pending()
 
     async def async_stop(self) -> None:
         """End the session; the queue keeps playing whatever is left."""
@@ -315,6 +323,11 @@ class DJSession:
                     artist=artist, title=title, uri=content_id or ""
                 )
             self._notify()
+
+            # A new song just started - the gap between tracks is where the
+            # DJ voice belongs. Speak the comment queued from the last round
+            # before topping up (which queues the next one).
+            self._speak_pending()
 
             if len(self.upcoming) < self.lookahead:
                 await self._top_up(
@@ -538,17 +551,35 @@ class DJSession:
         async_dispatcher_send(self.hass, SIGNAL_SESSION_UPDATE)
 
     def _set_comment(self, comment: str) -> None:
-        """Store a new dj_comment, log it, and speak it aloud (best-effort).
+        """Store a new dj_comment, log it, and queue it to be spoken.
 
         A falsy comment means the LLM didn't send a new one this round (e.g.
         a top-up), so the existing self.dj_comment carries on unchanged and
-        nothing new gets spoken.
+        nothing new gets queued.
+
+        The comment is not spoken here - it's held in self._pending_comment
+        and read aloud at the next track transition (see _speak_pending), so
+        the voice lands in the gap between songs instead of interrupting one.
         """
         if not comment:
             return
         self.dj_comment = comment
         self.comment_log.append(comment)
-        if self.announce_enabled:
+        self._pending_comment = comment
+
+    def _speak_pending(self) -> None:
+        """Read the queued comment aloud (best-effort), if any.
+
+        Called at track transitions. On a player that can't duck, Music
+        Assistant interrupts and restarts the current track to announce;
+        timing this to a transition (playhead ~0) makes that restart
+        invisible, and the announcer seeks back afterwards to be safe.
+        Respects the live announce_enabled toggle, so muting mid-session
+        silently drops queued comments rather than banking them.
+        """
+        comment = self._pending_comment
+        self._pending_comment = None
+        if comment and self.announce_enabled:
             self.hass.async_create_task(
                 self.announcer.async_speak(comment, self.personality, self.announce_pitch)
             )
