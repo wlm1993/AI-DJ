@@ -46,6 +46,8 @@ class Announcer:
                     "entity_id": self.player_entity,
                     "url": url,
                     "announce_volume": ANNOUNCE_VOLUME,
+                    # Skip Music Assistant's default "ding" before the voice.
+                    "use_pre_announce": False,
                 },
                 blocking=True,
             )
