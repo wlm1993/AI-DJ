@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.6.0";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -13,6 +13,8 @@ class AiDjCard extends HTMLElement {
     this._toastTimer = null;
     this._volumeDragging = false;
     this._volumeReleaseTimer = null;
+    this._pitchDragging = false;
+    this._pitchReleaseTimer = null;
   }
 
   static getStubConfig() {
@@ -129,6 +131,30 @@ class AiDjCard extends HTMLElement {
     }, 1500);
   }
 
+  _onPitchInput(e) {
+    // Fires continuously while dragging - just update the live label.
+    this._pitchDragging = true;
+    this._text("pitch-value", this._formatPitch(e.target.value));
+  }
+
+  _onPitchChange(e) {
+    // Fires once on release/commit - this is when we actually call HA.
+    // Direct call (not this._call) so the slider stays snappy, matching volume.
+    this._hass.callService("ai_dj", "set_announce_pitch", {
+      pitch: Number(e.target.value),
+    });
+    clearTimeout(this._pitchReleaseTimer);
+    this._pitchReleaseTimer = setTimeout(() => {
+      this._pitchDragging = false;
+    }, 1500);
+  }
+
+  _formatPitch(value) {
+    const n = Number(value);
+    if (n === 0) return "0";
+    return n > 0 ? `+${n}` : `${n}`;
+  }
+
   // ------------------------------------------------------------------ views
 
   _buildView(mode) {
@@ -175,6 +201,9 @@ class AiDjCard extends HTMLElement {
       const volumeEl = this.shadowRoot.getElementById("volume");
       volumeEl.addEventListener("input", (e) => this._onVolumeInput(e));
       volumeEl.addEventListener("change", (e) => this._onVolumeChange(e));
+      const pitchEl = this.shadowRoot.getElementById("pitch");
+      pitchEl.addEventListener("input", (e) => this._onPitchInput(e));
+      pitchEl.addEventListener("change", (e) => this._onPitchChange(e));
     }
   }
 
@@ -243,6 +272,13 @@ class AiDjCard extends HTMLElement {
       } else {
         this._text("volume-value", "–");
       }
+    }
+
+    if (!this._pitchDragging) {
+      const pitchEl = this.shadowRoot.getElementById("pitch");
+      const pitch = typeof attrs.announce_pitch === "number" ? attrs.announce_pitch : 0;
+      if (Number(pitchEl.value) !== pitch) pitchEl.value = pitch;
+      this._text("pitch-value", this._formatPitch(pitch));
     }
 
     this._updateArc(attrs.plan || [], attrs.current_phase_index);
@@ -409,6 +445,11 @@ AiDjCard.activeTemplate = `
       <span class="vol-icon">🔊</span>
       <input id="volume" type="range" min="0" max="100" step="1" value="0" />
       <span id="volume-value" class="vol-value">–</span>
+    </div>
+    <div class="volume-row">
+      <span class="vol-icon" title="Announcer pitch">🎚️</span>
+      <input id="pitch" type="range" min="-12" max="12" step="1" value="0" />
+      <span id="pitch-value" class="vol-value">0</span>
     </div>
     <div id="comment-row" class="comment hidden">
       <span class="comment-badge">DJ</span><span id="comment"></span>

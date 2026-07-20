@@ -57,3 +57,21 @@ set_announce:
       required: true
       selector:
         boolean:
+
+set_announce_pitch:
+  name: Set announcer pitch
+  description: >-
+    Trim the DJ voice's pitch (semitones) up or down for the current
+    session, on top of the current persona's base pitch.
+  fields:
+    pitch:
+      name: Pitch trim
+      description: Semitones to shift the announcer voice by, -12 to 12.
+      required: true
+      example: 3
+      selector:
+        number:
+          min: -12
+          max: 12
+          step: 1
+          mode: slider

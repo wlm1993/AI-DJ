@@ -13,9 +13,12 @@ DEFAULT_TTS_ENTITY = "tts.piper"
 
 # Fixed personas the LLM chooses from (based on the listener's brief) rather
 # than a free-text personality the user configures. "voice" is a Piper voice
-# name (e.g. from the rhasspy/piper-voices catalogue) passed as the "voice"
-# TTS option - swap these for whichever voices you've actually installed.
-PERSONALITIES: dict[str, dict[str, str]] = {
+# name (e.g. from the rhasspy/piper-voices catalogue). "speed" (1-500, 100 =
+# normal) and "pitch" (semitones, 0 = normal) are rendered via the Chime TTS
+# integration (chime_tts.say_url), which layers per-call speed/pitch control
+# on top of whatever TTS platform is configured - Piper itself has no
+# per-call speed/pitch option.
+PERSONALITIES: dict[str, dict[str, str | int]] = {
     "late_night": {
         "label": "Late-Night Radio",
         "description": (
@@ -24,6 +27,8 @@ PERSONALITIES: dict[str, dict[str, str]] = {
             "the occasional surprise. Keep your comments short and human."
         ),
         "voice": "en_US-lessac-medium",
+        "speed": 95,
+        "pitch": -1,
     },
     "hype": {
         "label": "Hype MC",
@@ -33,6 +38,8 @@ PERSONALITIES: dict[str, dict[str, str]] = {
             "energy up."
         ),
         "voice": "en_US-ryan-high",
+        "speed": 115,
+        "pitch": 1,
     },
     "chill": {
         "label": "Chill Lounge Host",
@@ -42,6 +49,8 @@ PERSONALITIES: dict[str, dict[str, str]] = {
             "comments are brief and unobtrusive."
         ),
         "voice": "en_GB-alan-medium",
+        "speed": 90,
+        "pitch": -1,
     },
     "indie": {
         "label": "Indie Curator",
@@ -51,6 +60,8 @@ PERSONALITIES: dict[str, dict[str, str]] = {
             "hype man."
         ),
         "voice": "en_US-kristin-medium",
+        "speed": 100,
+        "pitch": 0,
     },
     "coach": {
         "label": "Workout Coach",
@@ -59,9 +70,16 @@ PERSONALITIES: dict[str, dict[str, str]] = {
             "between tracks, keeps the room moving, no filler."
         ),
         "voice": "en_US-joe-medium",
+        "speed": 118,
+        "pitch": 2,
     },
 }
 DEFAULT_PERSONALITY = "late_night"
+
+# Live per-session pitch trim (semitones), added on top of the current
+# persona's base "pitch" - this is the "fun slider" on the card.
+MIN_ANNOUNCE_PITCH = -12
+MAX_ANNOUNCE_PITCH = 12
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENAI = "openai"
@@ -101,15 +119,17 @@ SERVICE_LIKE = "like"
 SERVICE_WISH = "wish"
 SERVICE_SKIP = "skip"
 SERVICE_SET_ANNOUNCE = "set_announce"
+SERVICE_SET_ANNOUNCE_PITCH = "set_announce_pitch"
 
 ATTR_PROMPT = "prompt"
 ATTR_PLAYER = "player"
 ATTR_TEXT = "text"
 ATTR_ENABLED = "enabled"
+ATTR_PITCH = "pitch"
 
 SIGNAL_SESSION_UPDATE = f"{DOMAIN}_session_update"
 
-CARD_VERSION = "0.5.0"
+CARD_VERSION = "0.6.0"
 CARD_URL_PATH = f"/{DOMAIN}-files/ai-dj-card.js"
 # Version query busts the browser/Cloudflare cache when the card changes.
 CARD_RESOURCE_URL = f"{CARD_URL_PATH}?v={CARD_VERSION}"

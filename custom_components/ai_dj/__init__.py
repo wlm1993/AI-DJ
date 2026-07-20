@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     ATTR_ENABLED,
+    ATTR_PITCH,
     ATTR_PLAYER,
     ATTR_PROMPT,
     ATTR_TEXT,
@@ -28,8 +29,11 @@ from .const import (
     DEFAULT_LOOKAHEAD,
     DEFAULT_TTS_ENTITY,
     DOMAIN,
+    MAX_ANNOUNCE_PITCH,
+    MIN_ANNOUNCE_PITCH,
     SERVICE_LIKE,
     SERVICE_SET_ANNOUNCE,
+    SERVICE_SET_ANNOUNCE_PITCH,
     SERVICE_SKIP,
     SERVICE_START,
     SERVICE_STOP,
@@ -50,6 +54,13 @@ START_SCHEMA = vol.Schema(
 )
 WISH_SCHEMA = vol.Schema({vol.Required(ATTR_TEXT): cv.string})
 SET_ANNOUNCE_SCHEMA = vol.Schema({vol.Required(ATTR_ENABLED): cv.boolean})
+SET_ANNOUNCE_PITCH_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PITCH): vol.All(
+            vol.Coerce(int), vol.Range(MIN_ANNOUNCE_PITCH, MAX_ANNOUNCE_PITCH)
+        )
+    }
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -124,6 +135,9 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_set_announce(call: ServiceCall) -> None:
         await _get_session(hass).async_set_announce(call.data[ATTR_ENABLED])
 
+    async def handle_set_announce_pitch(call: ServiceCall) -> None:
+        await _get_session(hass).async_set_announce_pitch(call.data[ATTR_PITCH])
+
     hass.services.async_register(DOMAIN, SERVICE_START, handle_start, START_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop)
     hass.services.async_register(DOMAIN, SERVICE_LIKE, handle_like)
@@ -131,6 +145,12 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_SKIP, handle_skip)
     hass.services.async_register(
         DOMAIN, SERVICE_SET_ANNOUNCE, handle_set_announce, SET_ANNOUNCE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_ANNOUNCE_PITCH,
+        handle_set_announce_pitch,
+        SET_ANNOUNCE_PITCH_SCHEMA,
     )
 
 

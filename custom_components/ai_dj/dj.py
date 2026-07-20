@@ -16,7 +16,14 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .announcer import Announcer
-from .const import DEFAULT_PERSONALITY, EXTRA_CANDIDATES, PERSONALITIES, SIGNAL_SESSION_UPDATE
+from .const import (
+    DEFAULT_PERSONALITY,
+    EXTRA_CANDIDATES,
+    MAX_ANNOUNCE_PITCH,
+    MIN_ANNOUNCE_PITCH,
+    PERSONALITIES,
+    SIGNAL_SESSION_UPDATE,
+)
 from .llm import DJPick, LLMClient, LLMError, Phase, TrackSuggestion
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,6 +82,9 @@ class DJSession:
         self.personality = DEFAULT_PERSONALITY
         self.announcer = Announcer(hass, player_entity, tts_entity)
         self.announce_enabled = True
+        # Live per-session pitch trim, added to the current persona's base
+        # pitch - the "fun slider" on the card.
+        self.announce_pitch = 0
 
         self.active = False
         self.dj_comment: str = ""
@@ -230,6 +240,11 @@ class DJSession:
     async def async_set_announce(self, enabled: bool) -> None:
         """Toggle whether dj_comment gets read aloud."""
         self.announce_enabled = enabled
+        self._notify()
+
+    async def async_set_announce_pitch(self, pitch: int) -> None:
+        """Set the live pitch trim (semitones) applied on top of the persona's base pitch."""
+        self.announce_pitch = max(MIN_ANNOUNCE_PITCH, min(pitch, MAX_ANNOUNCE_PITCH))
         self._notify()
 
     # ---------------------------------------------------------------- engine
@@ -535,7 +550,7 @@ class DJSession:
         self.comment_log.append(comment)
         if self.announce_enabled:
             self.hass.async_create_task(
-                self.announcer.async_speak(comment, self.personality)
+                self.announcer.async_speak(comment, self.personality, self.announce_pitch)
             )
 
     def snapshot(self) -> dict[str, Any]:
@@ -548,6 +563,7 @@ class DJSession:
             "personality": self.personality,
             "personality_label": PERSONALITIES.get(self.personality, {}).get("label"),
             "announce_enabled": self.announce_enabled,
+            "announce_pitch": self.announce_pitch,
             "current_track": self.current.as_dict() if self.current else None,
             "upcoming": [t.as_dict() for t in self.upcoming],
             "liked": self.liked,
