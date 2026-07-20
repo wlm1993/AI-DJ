@@ -48,9 +48,21 @@ You receive a JSON object describing the session:
 - "upcoming": tracks already queued - never duplicate these either
 - "your_recent_comments": things YOU already said earlier this session
 - "tracks_played_so_far": how many tracks have already played
-- "count": how many tracks you must aim to add to the queue
+- "count": the target number of tracks to add to the queue
 - "candidates": how many ranked candidates to return (more than "count",
   because some may not resolve in the library - order by preference)
+- "respond_to_this_wish_now": present only when the listener just made a new
+  request. Decide whether it is:
+  (a) a SPECIFIC SONG/ARTIST REQUEST ("play some Prince", "queue Superstition
+      next") - it does not change the overall direction of the set, or
+  (b) a MOOD/VIBE/GENRE SHIFT ("switch to something mellow", "let's get more
+      upbeat", "less pop, more jazz") - it changes where the set is headed.
+  Set "mood_shift" to true ONLY for case (b). For case (a), set it to false
+  and return ONLY the requested track(s) in "tracks" (do not pad with extra,
+  unrelated picks) - up to "count" is a ceiling, not a target, when
+  "mood_shift" is false. For case (b), return up to "count" tracks that
+  commit fully to the new direction, since they will replace everything
+  currently queued.
 
 Continuity is essential:
 - This is ONE ongoing set. If "tracks_played_so_far" is above zero, the
@@ -70,7 +82,8 @@ Rules:
   the music next. No emoji spam, no track-by-track list.
 
 Respond with ONLY a JSON object, no markdown fences, in this exact shape:
-{"dj_comment": "...", "tracks": [{"artist": "...", "title": "..."}, ...]}"""
+{"dj_comment": "...", "mood_shift": false, "tracks": [{"artist": "...", "title": "..."}, ...]}
+Omit "mood_shift" (or leave it false) when there is no "respond_to_this_wish_now" to judge."""
 
 
 class LLMError(HomeAssistantError):
@@ -104,6 +117,9 @@ class DJPick:
 
     comment: str
     tracks: list[TrackSuggestion] = field(default_factory=list)
+    # True only when the LLM judged the wish being resolved as a mood/vibe
+    # shift rather than a specific song request; meaningless otherwise.
+    mood_shift: bool = False
 
 
 class LLMClient:
@@ -136,7 +152,11 @@ class LLMClient:
         ]
         if not tracks:
             raise LLMError(f"LLM returned no usable tracks: {raw[:200]}")
-        return DJPick(comment=str(data.get("dj_comment", "")).strip(), tracks=tracks)
+        return DJPick(
+            comment=str(data.get("dj_comment", "")).strip(),
+            tracks=tracks,
+            mood_shift=bool(data.get("mood_shift", False)),
+        )
 
     async def async_validate(self) -> None:
         """Cheap round-trip to verify credentials and model name."""

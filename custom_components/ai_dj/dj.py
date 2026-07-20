@@ -155,10 +155,10 @@ class DJSession:
         return None
 
     async def async_wish(self, text: str) -> None:
-        """Handle a song wish or mood change: queue matching tracks next."""
+        """Handle a song wish or a mood/vibe change."""
         self.wishes.append(text)
         self._notify()
-        await self._top_up(count=2, mode="next", wish=text)
+        await self._handle_wish(text)
 
     async def async_skip(self) -> None:
         """Skip to the next queued track."""
@@ -231,6 +231,47 @@ class DJSession:
                 self.error = None
             except (LLMError, HomeAssistantError) as err:
                 _LOGGER.warning("AI DJ top-up failed: %s", err)
+                self.error = str(err)
+            self._notify()
+
+    async def _handle_wish(self, text: str) -> None:
+        """Resolve a wish.
+
+        A mood/vibe shift replaces everything queued after the currently
+        playing track (via Music Assistant's REPLACE_NEXT), since the
+        listener wants the *direction* to change. A specific song request
+        just gets inserted next, leaving the rest of the queue untouched.
+        """
+        if not self.active:
+            return
+        async with self._pick_lock:
+            if not self.active:
+                return
+            try:
+                pick = await self._llm_round(count=self.lookahead, wish=text)
+                needed = self.lookahead if pick.mood_shift else len(pick.tracks)
+                resolved = await self._resolve(pick.tracks, needed=needed)
+                if not resolved:
+                    raise LLMError("no picks could be resolved in the library")
+
+                if pick.mood_shift:
+                    await self._enqueue(resolved[0], mode="replace_next")
+                    for track in resolved[1:]:
+                        await self._enqueue(track, mode="add")
+                    self.upcoming = resolved
+                else:
+                    # "next" inserts right after the current item, so enqueue
+                    # in reverse to end up with the intended play order.
+                    for track in reversed(resolved):
+                        await self._enqueue(track, mode="next")
+                    self.upcoming = resolved + self.upcoming
+
+                self.dj_comment = pick.comment or self.dj_comment
+                if pick.comment:
+                    self.comment_log.append(pick.comment)
+                self.error = None
+            except (LLMError, HomeAssistantError) as err:
+                _LOGGER.warning("AI DJ wish handling failed: %s", err)
                 self.error = str(err)
             self._notify()
 
@@ -307,7 +348,7 @@ class DJSession:
         )
 
     async def _enqueue(self, track: ResolvedTrack, mode: str) -> None:
-        """mode: replace | add | next."""
+        """mode: replace | add | next | replace_next (MA QueueOption values)."""
         await self.hass.services.async_call(
             MA_DOMAIN,
             "play_media",

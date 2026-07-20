@@ -31,7 +31,9 @@ like:
 
 wish:
   name: Wish
-  description: Ask for a specific song or a change of mood; it plays next.
+  description: >-
+    Ask for a specific song (plays next, rest of the queue untouched) or a
+    change of mood (replaces everything queued after the current track).
   fields:
     text:
       name: Wish
