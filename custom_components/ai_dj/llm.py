@@ -204,17 +204,29 @@ class LLMClient:
 
     async def _complete_openai(self, system: str, user: str) -> str:
         url = f"{self._base_url}/chat/completions" if self._base_url else OPENAI_URL
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            # Generous ceiling: several "OpenAI-compatible" backends (DeepSeek,
+            # some Groq/OpenRouter models, local reasoning models via Ollama)
+            # default to a hidden reasoning pass that eats the output budget
+            # before the visible answer, same failure class as the Gemini
+            # thinking-model truncation.
+            "max_tokens": 8192,
+        }
+        if self._base_url and "deepseek.com" in self._base_url:
+            # DeepSeek's reasoning ("thinking") mode is on by default even
+            # for deepseek-chat; this task needs a plain JSON answer, not
+            # visible chain-of-thought, so turn it off at the source.
+            payload["thinking"] = {"type": "disabled"}
         resp = await self._session.post(
             url,
             timeout=REQUEST_TIMEOUT,
             headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
+            json=payload,
         )
         body = await resp.json()
         if resp.status != 200:
@@ -223,9 +235,19 @@ class LLMClient:
                 retryable=resp.status in RETRYABLE_STATUS,
             )
         try:
-            return body["choices"][0]["message"]["content"]
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as err:
             raise LLMError(f"Unexpected OpenAI response: {body}") from err
+        if not content or choice.get("finish_reason") == "length":
+            raise LLMError(
+                f"Model '{self._model}' hit its output-token limit before "
+                "finishing (likely spent it on hidden reasoning). Try a "
+                "non-reasoning model or a model with 'chat'/'instruct' in "
+                "its name rather than 'reasoner'/'thinking'/'r1'.",
+                retryable=True,
+            )
+        return content
 
     async def _complete_gemini(self, system: str, user: str) -> str:
         url = f"{GEMINI_URL}/{self._model}:generateContent"
