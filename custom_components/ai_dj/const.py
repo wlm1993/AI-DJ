@@ -59,7 +59,7 @@ ATTR_TEXT = "text"
 
 SIGNAL_SESSION_UPDATE = f"{DOMAIN}_session_update"
 
-CARD_VERSION = "0.3.0"
+CARD_VERSION = "0.4.0"
 CARD_URL_PATH = f"/{DOMAIN}-files/ai-dj-card.js"
 # Version query busts the browser/Cloudflare cache when the card changes.
 CARD_RESOURCE_URL = f"{CARD_URL_PATH}?v={CARD_VERSION}"

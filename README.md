@@ -25,6 +25,13 @@ ask for a **change of mood** — like a DJ taking requests.
 - Likes steer the session: liked tracks bias all future picks, and also
   favorite the track in Music Assistant / your streaming provider (e.g.
   Tidal) via that player's "Favorite current song" button.
+- **Volume**: the DJ picks a starting volume from your brief and adjusts it
+  when a wish calls for it (quiet dinner vs. a party), using bands
+  calibrated to this room's speakers - 18-28 quiet ambience, 29-38 relaxed,
+  39-51 standard, 52-75 loud. It will never go above 75 unless your own
+  words explicitly ask for it ("crank it", "max volume", "party volume").
+  The card also has a manual slider for your own fine-tuning at any time
+  (no cap - you can always go louder yourself).
 - Track suggestions are resolved against your Music Assistant library via
   `music_assistant.search`, preferring plain studio versions over
   live/remix/karaoke cuts. Suggestions that aren't in your library are

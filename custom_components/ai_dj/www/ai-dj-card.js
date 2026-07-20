@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.3.0";
+const CARD_VERSION = "0.4.0";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -11,6 +11,8 @@ class AiDjCard extends HTMLElement {
     this._likedKey = null; // optimistic-like marker for the current track
     this._currentKey = null;
     this._toastTimer = null;
+    this._volumeDragging = false;
+    this._volumeReleaseTimer = null;
   }
 
   static getStubConfig() {
@@ -99,6 +101,28 @@ class AiDjCard extends HTMLElement {
     }
   }
 
+  _onVolumeInput(e) {
+    // Fires continuously while dragging - just update the live label.
+    this._volumeDragging = true;
+    this._text("volume-value", `${e.target.value}%`);
+  }
+
+  _onVolumeChange(e) {
+    // Fires once on release/commit - this is when we actually call HA.
+    const attrs = this._hass.states[this._config.entity].attributes;
+    if (!attrs.player) return;
+    this._hass.callService("media_player", "volume_set", {
+      entity_id: attrs.player,
+      volume_level: Number(e.target.value) / 100,
+    });
+    // Give the new state a moment to round-trip before syncing from hass
+    // again, so the slider doesn't snap back before the echo arrives.
+    clearTimeout(this._volumeReleaseTimer);
+    this._volumeReleaseTimer = setTimeout(() => {
+      this._volumeDragging = false;
+    }, 1500);
+  }
+
   // ------------------------------------------------------------------ views
 
   _buildView(mode) {
@@ -141,6 +165,9 @@ class AiDjCard extends HTMLElement {
       this.shadowRoot.getElementById("wish").addEventListener("keydown", (e) => {
         if (e.key === "Enter") this._wish();
       });
+      const volumeEl = this.shadowRoot.getElementById("volume");
+      volumeEl.addEventListener("input", (e) => this._onVolumeInput(e));
+      volumeEl.addEventListener("change", (e) => this._onVolumeChange(e));
     }
   }
 
@@ -188,6 +215,20 @@ class AiDjCard extends HTMLElement {
       ? player.attributes.friendly_name || attrs.player
       : attrs.player || "";
     this._text("status", `On air · ${speaker}`);
+
+    if (!this._volumeDragging) {
+      const level =
+        player && typeof player.attributes.volume_level === "number"
+          ? Math.round(player.attributes.volume_level * 100)
+          : null;
+      const volumeEl = this.shadowRoot.getElementById("volume");
+      if (level !== null) {
+        if (Number(volumeEl.value) !== level) volumeEl.value = level;
+        this._text("volume-value", `${level}%`);
+      } else {
+        this._text("volume-value", "–");
+      }
+    }
 
     this._updateArc(attrs.plan || [], attrs.current_phase_index);
     this._updateList("upcoming", attrs.upcoming || [], "Up next");
@@ -348,6 +389,11 @@ AiDjCard.activeTemplate = `
         </div>
       </div>
     </div>
+    <div class="volume-row">
+      <span class="vol-icon">🔊</span>
+      <input id="volume" type="range" min="0" max="100" step="1" value="0" />
+      <span id="volume-value" class="vol-value">–</span>
+    </div>
     <div id="comment-row" class="comment hidden">
       <span class="comment-badge">DJ</span><span id="comment"></span>
     </div>
@@ -457,6 +503,31 @@ AiDjCard.styles = `
     0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); }
   }
   .round.stop:hover { color: var(--error-color, #f44336); }
+  .volume-row {
+    display: flex; align-items: center; gap: 10px; margin-top: 14px;
+  }
+  .vol-icon { flex: none; font-size: .95em; opacity: .85; }
+  .volume-row input[type=range] {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 4px; border-radius: 999px;
+    background: var(--divider-color); outline: none; padding: 0;
+    border: none;
+  }
+  .volume-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary-color); cursor: pointer;
+    border: 2px solid var(--card-background-color, #fff);
+    box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  .volume-row input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary-color); cursor: pointer; border: none;
+  }
+  .vol-value {
+    flex: none; width: 36px; text-align: right;
+    font-size: .82em; color: var(--secondary-text-color);
+  }
   .comment {
     margin-top: 14px; padding: 10px 12px; border-radius: 10px;
     background: var(--secondary-background-color);

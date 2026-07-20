@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,16 @@ MA_DOMAIN = "music_assistant"
 HISTORY_CONTEXT_SIZE = 40
 # Words in an album/version name that usually mean "not the studio cut".
 BAD_VERSION_WORDS = ("live", "remix", "karaoke", "tribute", "cover", "instrumental", "acoustic version", "re-record")
+
+# The LLM won't set volume above this unless the listener's own words
+# clearly ask for it (checked against LOUD_REQUEST_PATTERN below) - a
+# code-side backstop on top of the same rule already in the system prompt.
+MAX_AI_VOLUME = 75
+LOUD_REQUEST_PATTERN = re.compile(
+    r"\b(loud(?:er)?|max(?:imum)?(?:\s+volume)?|full\s+volume|crank(?:\s+it)?"
+    r"|blast|pump\s+it\s+up|turn\s+it\s+(?:all\s+the\s+way\s+)?up|party\s+volume)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -97,6 +108,8 @@ class DJSession:
         if pick.plan:
             self.plan = pick.plan
             self._plan_started_at = 0
+        if pick.volume is not None:
+            await self._apply_volume(pick.volume, self.prompt)
         self.current = resolved[0]
         self.upcoming = resolved[1:]
         self.active = True
@@ -161,6 +174,37 @@ class DJSession:
             ):
                 return candidate.entity_id
         return None
+
+    async def _apply_volume(self, volume: int, source_text: str) -> None:
+        """Set player volume from an LLM suggestion.
+
+        Capped at MAX_AI_VOLUME unless source_text (the brief or the
+        current wish - the listener's own words) explicitly asks for loud/
+        max volume, mirroring the rule already given to the LLM in the
+        system prompt.
+        """
+        target = max(0, min(volume, 100))
+        if target > MAX_AI_VOLUME and not LOUD_REQUEST_PATTERN.search(source_text):
+            target = MAX_AI_VOLUME
+        try:
+            await self.hass.services.async_call(
+                "media_player",
+                "volume_set",
+                {"entity_id": self.player_entity, "volume_level": target / 100},
+                blocking=True,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning("AI DJ could not set volume: %s", err)
+
+    def _current_volume_percent(self) -> int | None:
+        """The player's current volume as 0-100, or None if unknown."""
+        state = self.hass.states.get(self.player_entity)
+        if state is None:
+            return None
+        level = state.attributes.get("volume_level")
+        if not isinstance(level, (int, float)):
+            return None
+        return round(level * 100)
 
     async def async_wish(self, text: str) -> None:
         """Handle a song wish or a mood/vibe change."""
@@ -282,6 +326,9 @@ class DJSession:
                         await self._enqueue(track, mode="next")
                     self.upcoming = resolved + self.upcoming
 
+                if pick.volume is not None:
+                    await self._apply_volume(pick.volume, text)
+
                 self.dj_comment = pick.comment or self.dj_comment
                 if pick.comment:
                     self.comment_log.append(pick.comment)
@@ -317,6 +364,10 @@ class DJSession:
             context["current_phase_index"] = self._current_phase_index()
         if needs_initial_plan:
             context["needs_initial_plan"] = True
+        if needs_initial_plan or wish:
+            current_volume = self._current_volume_percent()
+            if current_volume is not None:
+                context["current_volume"] = current_volume
         if wish:
             context["respond_to_this_wish_now"] = wish
         return await self.llm.async_pick_tracks(context)

@@ -69,6 +69,27 @@ You receive a JSON object describing the session:
   phases, each {"label", "description", "target_track_count"}.
 - "current_phase_index": which phase of "plan" is current right now
   (0-based) - shape your picks to fit that phase's mood and energy.
+- "current_volume": the player's current volume, 0-100, when known. Present
+  only on rounds where you are also allowed to change it (see "Setting the
+  volume").
+
+Setting the volume:
+- You may only touch volume on the very first round of a session
+  ("needs_initial_plan" is true) or when responding to a wish
+  ("respond_to_this_wish_now" is present) - never on a routine top-up.
+  On those rounds, include "volume" (an integer 0-100) in your response
+  ONLY if a change is actually warranted by "brief" or the current wish -
+  if "current_volume" already suits the moment, omit "volume" rather than
+  nudging it out of habit.
+- These bands are the room's actual calibration - use them as written:
+  * 18-28: quiet ambience (background, low-key)
+  * 29-38: relaxed (comfortable, easy listening)
+  * 39-51: standard (normal listening level)
+  * 52-75: loud (energetic, dancing, parties)
+- NEVER set "volume" above 75 unless the listener's own words - in "brief"
+  or the current wish - explicitly ask for it (e.g. "crank it", "much
+  louder", "max volume", "party volume", "turn it all the way up"). Only
+  then may you go as high as 100.
 
 Planning the arc:
 - A DJ set has a shape, not just a playlist. Include a "plan" in your
@@ -117,9 +138,10 @@ Rules:
   the music next. No emoji spam, no track-by-track list.
 
 Respond with ONLY a JSON object, no markdown fences, in this exact shape:
-{"dj_comment": "...", "mood_shift": false, "plan": [{"label": "...", "description": "...", "target_track_count": 4}, ...], "tracks": [{"artist": "...", "title": "..."}, ...]}
+{"dj_comment": "...", "mood_shift": false, "plan": [{"label": "...", "description": "...", "target_track_count": 4}, ...], "volume": 45, "tracks": [{"artist": "...", "title": "..."}, ...]}
 Omit "mood_shift" (or leave it false) when there is no "respond_to_this_wish_now" to judge.
-Omit "plan" unless "needs_initial_plan" is true or you are setting "mood_shift" to true."""
+Omit "plan" unless "needs_initial_plan" is true or you are setting "mood_shift" to true.
+Omit "volume" unless a change is warranted on a round where you are allowed to set it."""
 
 
 class LLMError(HomeAssistantError):
@@ -174,6 +196,8 @@ class DJPick:
     mood_shift: bool = False
     # Present only when the LLM was asked to (re)plan the session's arc.
     plan: list[Phase] | None = None
+    # Present only when the LLM chose to change the volume this round.
+    volume: int | None = None
 
 
 class LLMClient:
@@ -211,6 +235,7 @@ class LLMClient:
             tracks=tracks,
             mood_shift=bool(data.get("mood_shift", False)),
             plan=_parse_plan(data.get("plan")),
+            volume=_parse_volume(data.get("volume")),
         )
 
     async def async_validate(self) -> None:
@@ -415,3 +440,13 @@ def _parse_plan(raw: Any) -> list[Phase] | None:
             )
         )
     return phases or None
+
+
+def _parse_volume(raw: Any) -> int | None:
+    """Parse a "volume" value defensively; out-of-range/invalid -> None."""
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    value = round(raw)
+    if 0 <= value <= 100:
+        return value
+    return None
