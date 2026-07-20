@@ -83,6 +83,7 @@ class DJSession:
         self.plan: list[Phase] = []
 
         self._pick_lock = asyncio.Lock()
+        self._advance_lock = asyncio.Lock()
         self._unsub_state: Any = None
         self._ma_config_entry_id: str | None = None
         # len(self.history) at the moment self.plan was (re)set, so phase
@@ -230,30 +231,70 @@ class DJSession:
             return
         title = new_state.attributes.get("media_title")
         artist = new_state.attributes.get("media_artist")
+        content_id = new_state.attributes.get("media_content_id")
         if not title:
             return
         if self.current and title == self.current.title:
             return
-        self.hass.async_create_task(self._advance(title, artist or ""))
+        self.hass.async_create_task(self._advance(title, artist or "", content_id))
 
-    async def _advance(self, title: str, artist: str) -> None:
-        """A new track started playing on the player."""
-        if self.current:
-            self.history.append(self.current.as_dict())
+    async def _advance(
+        self, title: str, artist: str, content_id: str | None = None
+    ) -> None:
+        """A new track started playing on the player.
 
-        match = next(
-            (t for t in self.upcoming if t.title.casefold() == title.casefold()), None
-        )
-        if match:
-            self.upcoming.remove(match)
-            self.current = match
-        else:
-            # Track we didn't queue (radio mode, manual queueing) - track it anyway.
-            self.current = ResolvedTrack(artist=artist, title=title, uri="")
-        self._notify()
+        Guarded by a lock: fire-and-forget scheduling from
+        _handle_player_event means a chatty player (extra state-changed
+        events during a track transition) can trigger this twice for the
+        same new title before the first call finishes. Without the lock,
+        the second call would find self.current already updated, fail to
+        match the title in self.upcoming (already consumed by the first
+        call), and silently desync the queue bookkeeping from what's
+        actually in Music Assistant.
 
-        if len(self.upcoming) < self.lookahead:
-            await self._top_up(count=self.lookahead - len(self.upcoming), mode="add")
+        Matches by URI (media_content_id, which mirrors ResolvedTrack.uri)
+        when available - exact and unambiguous - falling back to a
+        casefolded title match otherwise. Title-only matching can grab the
+        wrong entry when two queued tracks share a display title (e.g. the
+        same song resolved as a plain cut and as "(Remastered 2019)").
+        """
+        async with self._advance_lock:
+            if self.current and (
+                title.casefold() == self.current.title.casefold()
+                or (content_id and content_id == self.current.uri)
+            ):
+                return  # a duplicate event for the same transition - no-op
+
+            if self.current:
+                self.history.append(self.current.as_dict())
+
+            match = None
+            if content_id:
+                match = next((t for t in self.upcoming if t.uri == content_id), None)
+            if match is None:
+                match = next(
+                    (
+                        t
+                        for t in self.upcoming
+                        if t.title.casefold() == title.casefold()
+                    ),
+                    None,
+                )
+            if match:
+                self.upcoming.remove(match)
+                self.current = match
+            else:
+                # Track we didn't queue (radio mode, manual queueing) - track
+                # it anyway.
+                self.current = ResolvedTrack(
+                    artist=artist, title=title, uri=content_id or ""
+                )
+            self._notify()
+
+            if len(self.upcoming) < self.lookahead:
+                await self._top_up(
+                    count=self.lookahead - len(self.upcoming), mode="add"
+                )
 
     async def _top_up(self, count: int, mode: str, wish: str | None = None) -> None:
         """Ask the LLM for more tracks and enqueue them."""
