@@ -15,7 +15,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import EXTRA_CANDIDATES, SIGNAL_SESSION_UPDATE
+from .announcer import Announcer
+from .const import DEFAULT_PERSONALITY, EXTRA_CANDIDATES, PERSONALITIES, SIGNAL_SESSION_UPDATE
 from .llm import DJPick, LLMClient, LLMError, Phase, TrackSuggestion
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,14 +63,18 @@ class DJSession:
         player_entity: str,
         prompt: str,
         lookahead: int,
-        personality: str,
+        tts_entity: str = "",
     ) -> None:
         self.hass = hass
         self.llm = llm
         self.player_entity = player_entity
         self.prompt = prompt
         self.lookahead = lookahead
-        self.personality = personality
+        # Seeded with a default; the LLM picks the persona that actually
+        # fits "prompt" on the first round (see _set_comment/async_start).
+        self.personality = DEFAULT_PERSONALITY
+        self.announcer = Announcer(hass, player_entity, tts_entity)
+        self.announce_enabled = True
 
         self.active = False
         self.dj_comment: str = ""
@@ -103,9 +108,9 @@ class DJSession:
                 "None of the DJ's picks could be found in the Music Assistant library"
             )
 
-        self.dj_comment = pick.comment
-        if pick.comment:
-            self.comment_log.append(pick.comment)
+        if pick.personality:
+            self.personality = pick.personality
+        self._set_comment(pick.comment)
         if pick.plan:
             self.plan = pick.plan
             self._plan_started_at = 0
@@ -222,6 +227,11 @@ class DJSession:
             blocking=True,
         )
 
+    async def async_set_announce(self, enabled: bool) -> None:
+        """Toggle whether dj_comment gets read aloud."""
+        self.announce_enabled = enabled
+        self._notify()
+
     # ---------------------------------------------------------------- engine
 
     @callback
@@ -318,9 +328,7 @@ class DJSession:
                     self.upcoming = resolved + self.upcoming
                 else:
                     self.upcoming.extend(resolved)
-                self.dj_comment = pick.comment or self.dj_comment
-                if pick.comment:
-                    self.comment_log.append(pick.comment)
+                self._set_comment(pick.comment)
                 self.error = None
             except (LLMError, HomeAssistantError) as err:
                 _LOGGER.warning("AI DJ top-up failed: %s", err)
@@ -356,6 +364,8 @@ class DJSession:
                         # old plan's phases no longer apply, so drop it
                         # rather than show a stale/misleading status.
                         self.plan = []
+                    if pick.personality:
+                        self.personality = pick.personality
                     await self._enqueue(resolved[0], mode="replace_next")
                     for track in resolved[1:]:
                         await self._enqueue(track, mode="add")
@@ -370,9 +380,7 @@ class DJSession:
                 if pick.volume is not None:
                     await self._apply_volume(pick.volume, text)
 
-                self.dj_comment = pick.comment or self.dj_comment
-                if pick.comment:
-                    self.comment_log.append(pick.comment)
+                self._set_comment(pick.comment)
                 self.error = None
             except (LLMError, HomeAssistantError) as err:
                 _LOGGER.warning("AI DJ wish handling failed: %s", err)
@@ -386,7 +394,7 @@ class DJSession:
         needs_initial_plan: bool = False,
     ) -> DJPick:
         context: dict[str, Any] = {
-            "dj_personality": self.personality,
+            "dj_personality": PERSONALITIES[self.personality]["description"],
             "brief": self.prompt,
             "wishes": self.wishes,
             "liked": self.liked,
@@ -514,6 +522,22 @@ class DJSession:
     def _notify(self) -> None:
         async_dispatcher_send(self.hass, SIGNAL_SESSION_UPDATE)
 
+    def _set_comment(self, comment: str) -> None:
+        """Store a new dj_comment, log it, and speak it aloud (best-effort).
+
+        A falsy comment means the LLM didn't send a new one this round (e.g.
+        a top-up), so the existing self.dj_comment carries on unchanged and
+        nothing new gets spoken.
+        """
+        if not comment:
+            return
+        self.dj_comment = comment
+        self.comment_log.append(comment)
+        if self.announce_enabled:
+            self.hass.async_create_task(
+                self.announcer.async_speak(comment, self.personality)
+            )
+
     def snapshot(self) -> dict[str, Any]:
         """Session state for the sensor / card."""
         return {
@@ -521,6 +545,9 @@ class DJSession:
             "player": self.player_entity,
             "prompt": self.prompt,
             "dj_comment": self.dj_comment,
+            "personality": self.personality,
+            "personality_label": PERSONALITIES.get(self.personality, {}).get("label"),
+            "announce_enabled": self.announce_enabled,
             "current_track": self.current.as_dict() if self.current else None,
             "upcoming": [t.as_dict() for t in self.upcoming],
             "liked": self.liked,

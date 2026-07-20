@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    PERSONALITIES,
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
     PROVIDER_OPENAI,
@@ -36,8 +37,21 @@ streaming library.
 Your personality is given in "dj_personality" - stay fully in character in
 every "dj_comment". Let it colour your word choice and your picks.
 
+Choosing a personality:
+- On the very first round of a session ("needs_initial_plan" is true),
+  choose whichever persona below best fits "brief" and return its id as
+  "personality". This also selects the text-to-speech voice used to read
+  your comments aloud, so the choice should genuinely match the listener's
+  activity/mood, not default to habit.
+- You may switch personas when you set "mood_shift" to true, but only if
+  the new direction genuinely calls for a different persona - otherwise
+  omit "personality" and the current one carries on.
+- Never invent a persona id - choose only from this catalogue:
+%%PERSONALITY_CATALOGUE%%
+
 You receive a JSON object describing the session:
-- "dj_personality": the persona you must embody
+- "dj_personality": the full description of the persona currently active -
+  stays in force until you choose a new "personality" id
 - "brief": what the listener asked for when the session started
 - "wishes": later requests, newest last (a specific song wish or a mood change);
   the newest wish outranks the original brief when they conflict
@@ -138,10 +152,16 @@ Rules:
   the music next. No emoji spam, no track-by-track list.
 
 Respond with ONLY a JSON object, no markdown fences, in this exact shape:
-{"dj_comment": "...", "mood_shift": false, "plan": [{"label": "...", "description": "...", "target_track_count": 4}, ...], "volume": 45, "tracks": [{"artist": "...", "title": "..."}, ...]}
+{"dj_comment": "...", "mood_shift": false, "personality": "...", "plan": [{"label": "...", "description": "...", "target_track_count": 4}, ...], "volume": 45, "tracks": [{"artist": "...", "title": "..."}, ...]}
 Omit "mood_shift" (or leave it false) when there is no "respond_to_this_wish_now" to judge.
+Omit "personality" unless "needs_initial_plan" is true or you are setting "mood_shift" to true and switching personas.
 Omit "plan" unless "needs_initial_plan" is true or you are setting "mood_shift" to true.
 Omit "volume" unless a change is warranted on a round where you are allowed to set it."""
+
+_PERSONALITY_CATALOGUE = "\n".join(
+    f'  * "{key}": {value["description"]}' for key, value in PERSONALITIES.items()
+)
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("%%PERSONALITY_CATALOGUE%%", _PERSONALITY_CATALOGUE)
 
 
 class LLMError(HomeAssistantError):
@@ -198,6 +218,9 @@ class DJPick:
     plan: list[Phase] | None = None
     # Present only when the LLM chose to change the volume this round.
     volume: int | None = None
+    # Present only when the LLM (re)chose the persona this round; a valid
+    # PERSONALITIES key or None.
+    personality: str | None = None
 
 
 class LLMClient:
@@ -236,6 +259,7 @@ class LLMClient:
             mood_shift=bool(data.get("mood_shift", False)),
             plan=_parse_plan(data.get("plan")),
             volume=_parse_volume(data.get("volume")),
+            personality=_parse_personality(data.get("personality")),
         )
 
     async def async_validate(self) -> None:
@@ -440,6 +464,13 @@ def _parse_plan(raw: Any) -> list[Phase] | None:
             )
         )
     return phases or None
+
+
+def _parse_personality(raw: Any) -> str | None:
+    """Parse a "personality" id; anything not in PERSONALITIES is dropped."""
+    if isinstance(raw, str) and raw in PERSONALITIES:
+        return raw
+    return None
 
 
 def _parse_volume(raw: Any) -> int | None:

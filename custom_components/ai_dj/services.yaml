@@ -46,3 +46,14 @@ wish:
 skip:
   name: Skip track
   description: Skip to the next queued track.
+
+set_announce:
+  name: Set voice announcements
+  description: Turn the DJ's spoken comments on or off for the current session.
+  fields:
+    enabled:
+      name: Enabled
+      description: Whether dj_comment should be read aloud.
+      required: true
+      selector:
+        boolean:

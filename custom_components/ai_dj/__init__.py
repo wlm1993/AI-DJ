@@ -13,6 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    ATTR_ENABLED,
     ATTR_PLAYER,
     ATTR_PROMPT,
     ATTR_TEXT,
@@ -22,12 +23,13 @@ from .const import (
     CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
-    CONF_PERSONALITY,
     CONF_PROVIDER,
+    CONF_TTS_ENTITY,
     DEFAULT_LOOKAHEAD,
-    DEFAULT_PERSONALITY,
+    DEFAULT_TTS_ENTITY,
     DOMAIN,
     SERVICE_LIKE,
+    SERVICE_SET_ANNOUNCE,
     SERVICE_SKIP,
     SERVICE_START,
     SERVICE_STOP,
@@ -47,6 +49,7 @@ START_SCHEMA = vol.Schema(
     }
 )
 WISH_SCHEMA = vol.Schema({vol.Required(ATTR_TEXT): cv.string})
+SET_ANNOUNCE_SCHEMA = vol.Schema({vol.Required(ATTR_ENABLED): cv.boolean})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -101,7 +104,7 @@ def _register_services(hass: HomeAssistant) -> None:
             player_entity=call.data[ATTR_PLAYER],
             prompt=call.data[ATTR_PROMPT],
             lookahead=entry.options.get(CONF_LOOKAHEAD, DEFAULT_LOOKAHEAD),
-            personality=entry.options.get(CONF_PERSONALITY, DEFAULT_PERSONALITY),
+            tts_entity=entry.options.get(CONF_TTS_ENTITY, DEFAULT_TTS_ENTITY),
         )
         hass.data[DOMAIN]["session"] = session
         await session.async_start()
@@ -118,11 +121,17 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_skip(call: ServiceCall) -> None:
         await _get_session(hass).async_skip()
 
+    async def handle_set_announce(call: ServiceCall) -> None:
+        await _get_session(hass).async_set_announce(call.data[ATTR_ENABLED])
+
     hass.services.async_register(DOMAIN, SERVICE_START, handle_start, START_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop)
     hass.services.async_register(DOMAIN, SERVICE_LIKE, handle_like)
     hass.services.async_register(DOMAIN, SERVICE_WISH, handle_wish, WISH_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_SKIP, handle_skip)
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_ANNOUNCE, handle_set_announce, SET_ANNOUNCE_SCHEMA
+    )
 
 
 async def _register_card(hass: HomeAssistant, domain_data: dict) -> None:

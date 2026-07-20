@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.4.0";
+const CARD_VERSION = "0.5.0";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -92,6 +92,12 @@ class AiDjCard extends HTMLElement {
     this._call("like");
   }
 
+  _toggleAnnounce() {
+    const attrs = this._hass.states[this._config.entity].attributes;
+    const currentlyOn = attrs.announce_enabled !== false;
+    this._hass.callService("ai_dj", "set_announce", { enabled: !currentlyOn });
+  }
+
   _playPause() {
     const attrs = this._hass.states[this._config.entity].attributes;
     if (attrs.player) {
@@ -158,6 +164,7 @@ class AiDjCard extends HTMLElement {
         });
     } else {
       on("like", () => this._like());
+      on("announce", () => this._toggleAnnounce());
       on("skip", () => this._call("skip"));
       on("stop", () => this._call("stop"));
       on("playpause", () => this._playPause());
@@ -210,6 +217,14 @@ class AiDjCard extends HTMLElement {
     );
     const liked = likedBySensor || this._likedKey === key;
     this.shadowRoot.getElementById("like").classList.toggle("liked", liked);
+
+    const announceOn = attrs.announce_enabled !== false;
+    const announceBtn = this.shadowRoot.getElementById("announce");
+    announceBtn.classList.toggle("on", announceOn);
+    announceBtn.title = announceOn
+      ? "Voice announcements on — click to mute"
+      : "Voice announcements muted — click to unmute";
+    this._text("announce", announceOn ? "🔊" : "🔇");
 
     const speaker = player
       ? player.attributes.friendly_name || attrs.player
@@ -384,6 +399,7 @@ AiDjCard.activeTemplate = `
         <div class="controls">
           <button id="playpause" class="round" title="Play / pause">▶</button>
           <button id="like" class="round heart" title="Like — more like this">♥</button>
+          <button id="announce" class="round announce" title="Toggle DJ voice announcements">🔊</button>
           <button id="skip" class="round" title="Skip">⏭</button>
           <button id="stop" class="round stop" title="End session">⏹</button>
         </div>
@@ -503,6 +519,9 @@ AiDjCard.styles = `
     0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); }
   }
   .round.stop:hover { color: var(--error-color, #f44336); }
+  .round.announce.on {
+    background: rgba(3, 169, 244, .18); color: var(--primary-color);
+  }
   .volume-row {
     display: flex; align-items: center; gap: 10px; margin-top: 14px;
   }

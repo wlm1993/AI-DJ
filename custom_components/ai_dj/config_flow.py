@@ -14,11 +14,11 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,
-    TextSelectorConfig,
 )
 
 from .const import (
@@ -26,12 +26,12 @@ from .const import (
     CONF_BASE_URL,
     CONF_LOOKAHEAD,
     CONF_MODEL,
-    CONF_PERSONALITY,
     CONF_PROVIDER,
+    CONF_TTS_ENTITY,
     DEFAULT_BASE_URL,
     DEFAULT_LOOKAHEAD,
     DEFAULT_MODELS,
-    DEFAULT_PERSONALITY,
+    DEFAULT_TTS_ENTITY,
     DOMAIN,
     MAX_LOOKAHEAD,
     MIN_LOOKAHEAD,
@@ -126,7 +126,7 @@ class AIDJConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class AIDJOptionsFlow(OptionsFlow):
-    """Tune model and queue lookahead after setup."""
+    """Tune model, queue lookahead and the announcer voice after setup."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -149,12 +149,12 @@ class AIDJOptionsFlow(OptionsFlow):
                         CONF_LOOKAHEAD,
                         default=entry.options.get(CONF_LOOKAHEAD, DEFAULT_LOOKAHEAD),
                     ): vol.All(vol.Coerce(int), vol.Range(MIN_LOOKAHEAD, MAX_LOOKAHEAD)),
-                    vol.Required(
-                        CONF_PERSONALITY,
+                    vol.Optional(
+                        CONF_TTS_ENTITY,
                         default=entry.options.get(
-                            CONF_PERSONALITY, DEFAULT_PERSONALITY
+                            CONF_TTS_ENTITY, DEFAULT_TTS_ENTITY
                         ),
-                    ): TextSelector(TextSelectorConfig(multiline=True)),
+                    ): EntitySelector(EntitySelectorConfig(domain="tts")),
                 }
             ),
         )
