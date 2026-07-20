@@ -15,7 +15,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import EXTRA_CANDIDATES, SIGNAL_SESSION_UPDATE
-from .llm import DJPick, LLMClient, LLMError, TrackSuggestion
+from .llm import DJPick, LLMClient, LLMError, Phase, TrackSuggestion
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,17 +69,22 @@ class DJSession:
         self.comment_log: list[str] = []
         self.current: ResolvedTrack | None = None
         self.upcoming: list[ResolvedTrack] = []
+        self.plan: list[Phase] = []
 
         self._pick_lock = asyncio.Lock()
         self._unsub_state: Any = None
         self._ma_config_entry_id: str | None = None
+        # len(self.history) at the moment self.plan was (re)set, so phase
+        # progress is measured from when this plan started, not from session
+        # start - a mood-shift plan restarts the count from "now".
+        self._plan_started_at = 0
 
     # ---------------------------------------------------------------- lifecycle
 
     async def async_start(self) -> None:
         """Kick off the session: first LLM round, then play + queue."""
         self._ma_config_entry_id = self._find_ma_config_entry()
-        pick = await self._llm_round(count=self.lookahead + 1)
+        pick = await self._llm_round(count=self.lookahead + 1, needs_initial_plan=True)
         resolved = await self._resolve(pick.tracks, needed=self.lookahead + 1)
         if not resolved:
             raise HomeAssistantError(
@@ -89,6 +94,9 @@ class DJSession:
         self.dj_comment = pick.comment
         if pick.comment:
             self.comment_log.append(pick.comment)
+        if pick.plan:
+            self.plan = pick.plan
+            self._plan_started_at = 0
         self.current = resolved[0]
         self.upcoming = resolved[1:]
         self.active = True
@@ -255,6 +263,14 @@ class DJSession:
                     raise LLMError("no picks could be resolved in the library")
 
                 if pick.mood_shift:
+                    if pick.plan:
+                        self.plan = pick.plan
+                        self._plan_started_at = len(self.history)
+                    else:
+                        # Direction changed but no fresh arc came back - the
+                        # old plan's phases no longer apply, so drop it
+                        # rather than show a stale/misleading status.
+                        self.plan = []
                     await self._enqueue(resolved[0], mode="replace_next")
                     for track in resolved[1:]:
                         await self._enqueue(track, mode="add")
@@ -275,7 +291,12 @@ class DJSession:
                 self.error = str(err)
             self._notify()
 
-    async def _llm_round(self, count: int, wish: str | None = None) -> DJPick:
+    async def _llm_round(
+        self,
+        count: int,
+        wish: str | None = None,
+        needs_initial_plan: bool = False,
+    ) -> DJPick:
         context: dict[str, Any] = {
             "dj_personality": self.personality,
             "brief": self.prompt,
@@ -291,9 +312,26 @@ class DJSession:
             "count": count,
             "candidates": count + EXTRA_CANDIDATES,
         }
+        if self.plan:
+            context["plan"] = [p.as_dict() for p in self.plan]
+            context["current_phase_index"] = self._current_phase_index()
+        if needs_initial_plan:
+            context["needs_initial_plan"] = True
         if wish:
             context["respond_to_this_wish_now"] = wish
         return await self.llm.async_pick_tracks(context)
+
+    def _current_phase_index(self) -> int:
+        """Which phase of self.plan the session is in right now (0-based)."""
+        if not self.plan:
+            return 0
+        played_in_plan = max(len(self.history) - self._plan_started_at, 0)
+        cumulative = 0
+        for index, phase in enumerate(self.plan):
+            cumulative += max(phase.target_track_count, 1)
+            if played_in_plan < cumulative:
+                return index
+        return len(self.plan) - 1  # plan exhausted - stay on the final phase
 
     # ------------------------------------------------------- Music Assistant I/O
 
@@ -396,6 +434,8 @@ class DJSession:
             "liked": self.liked,
             "wishes": self.wishes,
             "history": self.history[-20:],
+            "plan": [p.as_dict() for p in self.plan],
+            "current_phase_index": self._current_phase_index() if self.plan else None,
             "error": self.error,
         }
 

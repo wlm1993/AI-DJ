@@ -63,6 +63,41 @@ You receive a JSON object describing the session:
   "mood_shift" is false. For case (b), return up to "count" tracks that
   commit fully to the new direction, since they will replace everything
   currently queued.
+- "needs_initial_plan": present and true only on the very first round of a
+  brand-new session - see "Planning the arc" below.
+- "plan": the session's current arc (once one exists) - an ordered list of
+  phases, each {"label", "description", "target_track_count"}.
+- "current_phase_index": which phase of "plan" is current right now
+  (0-based) - shape your picks to fit that phase's mood and energy.
+
+Planning the arc:
+- A DJ set has a shape, not just a playlist. Include a "plan" in your
+  response ONLY when "needs_initial_plan" is true, or when you set
+  "mood_shift" to true - otherwise omit "plan" entirely (an existing plan,
+  if any, carries on unchanged).
+- A plan is 3-6 phases: [{"label": "short name", "description": "one
+  sentence on the mood/energy/genre direction", "target_track_count": N},
+  ...]. "target_track_count" is a rough length for that phase, not a hard
+  rule.
+- Choose the arc's SHAPE to fit "brief" - don't force a generic party arc
+  onto everything:
+  * a party/dance brief usually wants the classic warm-up -> build -> peak
+    -> cool-down shape
+  * a dinner-party or background-listening brief usually wants sustained,
+    steady warmth with little or no peak
+  * a workout brief usually wants high energy sustained for most of the
+    session, easing off only near the very end
+  * a focus/study brief usually wants a flat, unobtrusive mood throughout
+  Use judgement for anything else - the arc should serve the listener's
+  actual activity, not a template.
+- You do not have BPM or musical-key data for tracks. Reason about energy
+  and transitions from genre, era, tempo feel and your general music
+  knowledge - not precise harmonic mixing.
+- Avoid clustering the same artist too tightly, within a phase or across
+  adjacent phases.
+- When "mood_shift" is true, the new "plan" replaces the old one and
+  describes the arc for the REST of the session starting now - this is a
+  fresh direction the listener chose, not a continuation of the old plan.
 
 Continuity is essential:
 - This is ONE ongoing set. If "tracks_played_so_far" is above zero, the
@@ -82,8 +117,9 @@ Rules:
   the music next. No emoji spam, no track-by-track list.
 
 Respond with ONLY a JSON object, no markdown fences, in this exact shape:
-{"dj_comment": "...", "mood_shift": false, "tracks": [{"artist": "...", "title": "..."}, ...]}
-Omit "mood_shift" (or leave it false) when there is no "respond_to_this_wish_now" to judge."""
+{"dj_comment": "...", "mood_shift": false, "plan": [{"label": "...", "description": "...", "target_track_count": 4}, ...], "tracks": [{"artist": "...", "title": "..."}, ...]}
+Omit "mood_shift" (or leave it false) when there is no "respond_to_this_wish_now" to judge.
+Omit "plan" unless "needs_initial_plan" is true or you are setting "mood_shift" to true."""
 
 
 class LLMError(HomeAssistantError):
@@ -112,6 +148,22 @@ class TrackSuggestion:
 
 
 @dataclass
+class Phase:
+    """One stretch of the session's planned arc."""
+
+    label: str
+    description: str
+    target_track_count: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "description": self.description,
+            "target_track_count": self.target_track_count,
+        }
+
+
+@dataclass
 class DJPick:
     """Result of one LLM selection round."""
 
@@ -120,6 +172,8 @@ class DJPick:
     # True only when the LLM judged the wish being resolved as a mood/vibe
     # shift rather than a specific song request; meaningless otherwise.
     mood_shift: bool = False
+    # Present only when the LLM was asked to (re)plan the session's arc.
+    plan: list[Phase] | None = None
 
 
 class LLMClient:
@@ -156,6 +210,7 @@ class LLMClient:
             comment=str(data.get("dj_comment", "")).strip(),
             tracks=tracks,
             mood_shift=bool(data.get("mood_shift", False)),
+            plan=_parse_plan(data.get("plan")),
         )
 
     async def async_validate(self) -> None:
@@ -206,7 +261,7 @@ class LLMClient:
             },
             json={
                 "model": self._model,
-                "max_tokens": 2048,
+                "max_tokens": 3072,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
@@ -338,3 +393,25 @@ def _parse_json(raw: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise LLMError(f"LLM JSON is not an object: {raw[:200]}")
     return data
+
+
+def _parse_plan(raw: Any) -> list[Phase] | None:
+    """Parse a "plan" array defensively; malformed entries are dropped."""
+    if not isinstance(raw, list) or not raw:
+        return None
+    phases: list[Phase] = []
+    for item in raw:
+        if not isinstance(item, dict) or not item.get("label"):
+            continue
+        try:
+            count = int(item.get("target_track_count", 3))
+        except (TypeError, ValueError):
+            count = 3
+        phases.append(
+            Phase(
+                label=str(item["label"]).strip(),
+                description=str(item.get("description", "")).strip(),
+                target_track_count=max(count, 1),
+            )
+        )
+    return phases or None

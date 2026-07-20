@@ -1,6 +1,6 @@
 /* AI DJ Lovelace card — served automatically by the ai_dj integration. */
 
-const CARD_VERSION = "0.2.0";
+const CARD_VERSION = "0.3.0";
 
 class AiDjCard extends HTMLElement {
   constructor() {
@@ -189,8 +189,35 @@ class AiDjCard extends HTMLElement {
       : attrs.player || "";
     this._text("status", `On air · ${speaker}`);
 
+    this._updateArc(attrs.plan || [], attrs.current_phase_index);
     this._updateList("upcoming", attrs.upcoming || [], "Up next");
     this._updateList("liked-list", attrs.liked || [], "Liked");
+  }
+
+  _updateArc(plan, currentIndex) {
+    const row = this.shadowRoot.getElementById("arc-row");
+    if (!row) return;
+    if (!plan.length) {
+      row.classList.add("hidden");
+      return;
+    }
+    row.classList.remove("hidden");
+    const idx = Math.min(
+      typeof currentIndex === "number" ? currentIndex : 0,
+      plan.length - 1
+    );
+    const dots = this.shadowRoot.getElementById("arc-dots");
+    dots.innerHTML = plan
+      .map((_, i) => {
+        const cls = i < idx ? "done" : i === idx ? "active" : "";
+        return `<span class="dot ${cls}"></span>`;
+      })
+      .join("");
+    const phase = plan[idx];
+    const label = this.shadowRoot.getElementById("arc-label");
+    if (label.textContent !== phase.label) label.textContent = phase.label || "";
+    label.title = phase.description || "";
+    this._text("arc-progress", `${idx + 1} of ${plan.length}`);
   }
 
   _updatePlayers(players) {
@@ -303,6 +330,11 @@ AiDjCard.idleTemplate = `
 
 AiDjCard.activeTemplate = `
   <div class="pad">
+    <div id="arc-row" class="arc hidden">
+      <div id="arc-dots" class="arc-dots"></div>
+      <span id="arc-label" class="arc-label"></span>
+      <span id="arc-progress" class="arc-progress"></span>
+    </div>
     <div class="now">
       <div id="art" class="art placeholder"></div>
       <div class="meta">
@@ -376,6 +408,27 @@ AiDjCard.styles = `
     background: var(--primary-color); color: var(--text-primary-color, #fff);
     padding: 10px 18px; font-weight: 600; flex: none;
   }
+  .arc {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+    font-size: .82em; color: var(--secondary-text-color);
+  }
+  .arc-dots { display: flex; gap: 4px; flex: none; }
+  .arc-dots .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: transparent; border: 1.5px solid var(--divider-color);
+    box-sizing: border-box;
+  }
+  .arc-dots .dot.done {
+    background: var(--secondary-text-color); border-color: var(--secondary-text-color);
+  }
+  .arc-dots .dot.active {
+    background: var(--primary-color); border-color: var(--primary-color);
+  }
+  .arc-label {
+    font-weight: 600; color: var(--primary-text-color);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .arc-progress { margin-left: auto; flex: none; opacity: .8; }
   .now { display: flex; gap: 14px; align-items: center; }
   .art {
     width: 84px; height: 84px; border-radius: 12px; flex: none;

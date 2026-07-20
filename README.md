@@ -12,8 +12,19 @@ ask for a **change of mood** — like a DJ taking requests.
 - A rolling queue: the DJ keeps N tracks (default 3) queued ahead. Every time
   a track starts playing, it asks the LLM for the next pick given the full
   session context (your brief, likes, wishes, and everything already played).
-- Wishes jump the queue: a wish is resolved immediately and inserted next.
-- Likes steer the session: liked tracks bias all future picks.
+- **A session arc**: when a session starts, the DJ also plans the shape of
+  the whole set — 3-6 phases like "warm-up → build → peak → cool-down" (or
+  whatever shape actually fits your brief; a dinner party gets steady warmth,
+  not a dance-floor peak). The card shows the current phase as a small status
+  line with progress dots. Individual track picks stay true to the current
+  phase's mood and energy.
+- Wishes are either a **specific song request** (inserted next, rest of the
+  queue untouched) or a **mood/vibe change** (replaces everything queued
+  after the current track, and replans the arc for the rest of the session)
+  — the DJ decides which from your wording.
+- Likes steer the session: liked tracks bias all future picks, and also
+  favorite the track in Music Assistant / your streaming provider (e.g.
+  Tidal) via that player's "Favorite current song" button.
 - Track suggestions are resolved against your Music Assistant library via
   `music_assistant.search`, preferring plain studio versions over
   live/remix/karaoke cuts. Suggestions that aren't in your library are
@@ -112,7 +123,7 @@ Settings → Devices & Services → AI DJ → **Configure**:
 
 - One session runs at a time; starting a new one replaces the old.
 - The session state lives in `sensor.ai_dj` (`idle`/`active`, with
-  `current_track`, `upcoming`, `liked`, `wishes`, `history`, `dj_comment`
-  attributes) — easy to build automations on.
+  `current_track`, `upcoming`, `liked`, `wishes`, `history`, `dj_comment`,
+  `plan`, `current_phase_index` attributes) — easy to build automations on.
 - Only the search/pick round-trips hit the LLM API; a typical evening is a
   few dozen small calls to a cheap model.
