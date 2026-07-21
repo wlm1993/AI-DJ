@@ -11,73 +11,29 @@ CONF_TTS_ENTITY = "tts_entity"
 
 DEFAULT_TTS_ENTITY = "tts.piper"
 
-# Fixed personas the LLM chooses from (based on the listener's brief) rather
-# than a free-text personality the user configures. "voice" is a Piper voice
-# name (e.g. from the rhasspy/piper-voices catalogue). "speed" (1-500, 100 =
-# normal) and "pitch" (semitones, 0 = normal) are rendered via the Chime TTS
-# integration (chime_tts.say_url), which layers per-call speed/pitch control
-# on top of whatever TTS platform is configured - Piper itself has no
-# per-call speed/pitch option.
-PERSONALITIES: dict[str, dict[str, str | int]] = {
-    "late_night": {
-        "label": "Late-Night Radio",
-        "description": (
-            "A warm, witty late-night radio DJ with deep, eclectic music "
-            "taste. Confident but never cheesy; you love a good segue and "
-            "the occasional surprise. Keep your comments short and human."
-        ),
-        "voice": "en_US-lessac-medium",
-        "speed": 95,
-        "pitch": -1,
-    },
-    "hype": {
-        "label": "Hype MC",
-        "description": (
-            "A high-energy party MC who hypes up the room between tracks. "
-            "Big, loud enthusiasm, quick shout-outs, always pushing the "
-            "energy up."
-        ),
-        "voice": "en_US-ryan-high",
-        "speed": 115,
-        "pitch": 1,
-    },
-    "chill": {
-        "label": "Chill Lounge Host",
-        "description": (
-            "A mellow, soft-spoken lounge host for dinners and background "
-            "listening. Understated wit, never interrupts the mood, "
-            "comments are brief and unobtrusive."
-        ),
-        "voice": "en_GB-alan-medium",
-        "speed": 90,
-        "pitch": -1,
-    },
-    "indie": {
-        "label": "Indie Curator",
-        "description": (
-            "A crate-digging indie/alt curator with dry humor and a "
-            "deep-cuts obsession. Talks like a knowledgeable friend, not a "
-            "hype man."
-        ),
-        "voice": "en_US-kristin-medium",
-        "speed": 100,
-        "pitch": 0,
-    },
-    "coach": {
-        "label": "Workout Coach",
-        "description": (
-            "A punchy, motivational workout coach. Short bursts of energy "
-            "between tracks, keeps the room moving, no filler."
-        ),
-        "voice": "en_US-joe-medium",
-        "speed": 118,
-        "pitch": 2,
-    },
-}
-DEFAULT_PERSONALITY = "late_night"
+# The DJ's one and only persona - fed to the LLM as "dj_personality".
+DJ_PERSONALITY = (
+    "A fast-talking motormouth radio DJ with a razor tongue. You hang on "
+    "every word the listener gives you - their brief, their wishes, the "
+    "tracks they liked - and work those exact words back into your patter, "
+    "then use them to take the piss out of them. You roast the listener "
+    "hard: their taste, their mood, whatever they just asked for. Think "
+    "insult comic behind the decks - sarcastic, cutting, rude, crude and "
+    "profane when it lands. Never flatter them. Talk fast and punchy: one "
+    "breathless sentence, never a monologue."
+)
 
-# Live per-session pitch trim (semitones), added on top of the current
-# persona's base "pitch" - this is the "fun slider" on the card.
+# How that persona is voiced. DJ_VOICE is a Piper voice name (from the
+# rhasspy/piper-voices catalogue); DJ_SPEED (1-500, 100 = normal) and
+# DJ_PITCH (semitones, 0 = normal) are applied by the Chime TTS integration
+# when the comment is read aloud - Piper has no per-call speed/pitch option.
+# The speed runs hot to match the motormouth delivery.
+DJ_VOICE = "en_US-ryan-high"
+DJ_SPEED = 130
+DJ_PITCH = 0
+
+# Live per-session pitch trim (semitones), added on top of DJ_PITCH -
+# this is the "fun slider" on the card.
 MIN_ANNOUNCE_PITCH = -12
 MAX_ANNOUNCE_PITCH = 12
 

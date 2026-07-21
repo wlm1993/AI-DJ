@@ -17,11 +17,10 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .announcer import Announcer
 from .const import (
-    DEFAULT_PERSONALITY,
+    DJ_PERSONALITY,
     EXTRA_CANDIDATES,
     MAX_ANNOUNCE_PITCH,
     MIN_ANNOUNCE_PITCH,
-    PERSONALITIES,
     SIGNAL_SESSION_UPDATE,
 )
 from .llm import DJPick, LLMClient, LLMError, Phase, TrackSuggestion
@@ -77,9 +76,6 @@ class DJSession:
         self.player_entity = player_entity
         self.prompt = prompt
         self.lookahead = lookahead
-        # Seeded with a default; the LLM picks the persona that actually
-        # fits "prompt" on the first round (see _set_comment/async_start).
-        self.personality = DEFAULT_PERSONALITY
         self.announcer = Announcer(hass, player_entity, tts_entity)
         # Voice announcements are off by default - the player interrupts to
         # speak (it can't duck), so the listener opts in via the card toggle.
@@ -123,8 +119,6 @@ class DJSession:
                 "None of the DJ's picks could be found in the Music Assistant library"
             )
 
-        if pick.personality:
-            self.personality = pick.personality
         self._set_comment(pick.comment)
         if pick.plan:
             self.plan = pick.plan
@@ -392,8 +386,6 @@ class DJSession:
                         # old plan's phases no longer apply, so drop it
                         # rather than show a stale/misleading status.
                         self.plan = []
-                    if pick.personality:
-                        self.personality = pick.personality
                     await self._enqueue(resolved[0], mode="replace_next")
                     for track in resolved[1:]:
                         await self._enqueue(track, mode="add")
@@ -422,7 +414,7 @@ class DJSession:
         needs_initial_plan: bool = False,
     ) -> DJPick:
         context: dict[str, Any] = {
-            "dj_personality": PERSONALITIES[self.personality]["description"],
+            "dj_personality": DJ_PERSONALITY,
             "brief": self.prompt,
             "wishes": self.wishes,
             "liked": self.liked,
@@ -581,7 +573,7 @@ class DJSession:
         self._pending_comment = None
         if comment and self.announce_enabled:
             self.hass.async_create_task(
-                self.announcer.async_speak(comment, self.personality, self.announce_pitch)
+                self.announcer.async_speak(comment, self.announce_pitch)
             )
 
     def snapshot(self) -> dict[str, Any]:
@@ -591,8 +583,6 @@ class DJSession:
             "player": self.player_entity,
             "prompt": self.prompt,
             "dj_comment": self.dj_comment,
-            "personality": self.personality,
-            "personality_label": PERSONALITIES.get(self.personality, {}).get("label"),
             "announce_enabled": self.announce_enabled,
             "announce_pitch": self.announce_pitch,
             "current_track": self.current.as_dict() if self.current else None,

@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from .const import PERSONALITIES
+from .const import DJ_PITCH, DJ_SPEED, DJ_VOICE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class Announcer:
         self.player_entity = player_entity
         self.tts_entity = tts_entity
 
-    async def async_speak(self, text: str, personality: str, pitch_trim: int = 0) -> None:
+    async def async_speak(self, text: str, pitch_trim: int = 0) -> None:
         """Fire-and-forget: render `text` via Chime TTS and play it ducked.
 
         Best-effort - a TTS/announcement failure should never interrupt the
@@ -43,7 +43,7 @@ class Announcer:
             _LOGGER.debug("AI DJ: Chime TTS is not installed/configured - skipping announce")
             return
         try:
-            url = await self._async_render(text, personality, pitch_trim)
+            url = await self._async_render(text, pitch_trim)
             # Grab the playhead right before the announcement: MA can't duck
             # on this player, so play_announcement interrupts and restarts the
             # current track from 0. We seek back afterwards to hide that.
@@ -97,18 +97,15 @@ class Announcer:
         except HomeAssistantError as err:
             _LOGGER.debug("AI DJ could not restore playhead: %s", err)
 
-    async def _async_render(self, text: str, personality: str, pitch_trim: int) -> str:
-        """Render `text` through Chime TTS with the persona's voice/speed/pitch."""
-        persona = PERSONALITIES.get(personality, {})
+    async def _async_render(self, text: str, pitch_trim: int) -> str:
+        """Render `text` through Chime TTS with the DJ's voice/speed/pitch."""
         data: dict = {
             "message": text,
             "tts_platform": self.tts_entity,
+            "voice": DJ_VOICE,
+            "tts_speed": DJ_SPEED,
+            "tts_pitch": DJ_PITCH + pitch_trim,
         }
-        if persona.get("voice"):
-            data["voice"] = persona["voice"]
-        if persona.get("speed"):
-            data["tts_speed"] = persona["speed"]
-        data["tts_pitch"] = int(persona.get("pitch", 0)) + pitch_trim
         result = await self.hass.services.async_call(
             CHIME_TTS_DOMAIN,
             "say_url",
